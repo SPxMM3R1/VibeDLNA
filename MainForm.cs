@@ -27,8 +27,8 @@ internal sealed class MainForm : Form
     private readonly TextBox _logTextBox = new();
     private readonly LinkLabel _serverLink = new();
     private readonly Label _themeGlyphLabel = new();
+    private readonly Label _optionsMenuLabel = new();
     private readonly ToolTip _toolTip = new();
-    private readonly ModernButton _optionsButton = new();
     private readonly Label _startCommandLabel = new();
     private readonly Label _stopCommandLabel = new();
     private readonly Label _saveCommandLabel = new();
@@ -129,7 +129,7 @@ internal sealed class MainForm : Form
         _root.ColumnCount = 1;
         _root.RowCount = 4;
         _root.Padding = new Padding(0);
-        _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
+        _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
         _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
         _root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
@@ -148,14 +148,10 @@ internal sealed class MainForm : Form
             Dock = DockStyle.Fill,
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = false,
-            Padding = new Padding(12, 6, 0, 0)
+            Padding = new Padding(18, 2, 0, 0)
         };
-        _optionsButton.Text = "Opciones";
-        _optionsButton.Width = 118;
-        _optionsButton.Height = 34;
-        _optionsButton.Margin = new Padding(0);
-        _optionsButton.Click += (_, _) => OpenOptionsDialog();
-        host.Controls.Add(_optionsButton);
+        ConfigureMenuLabel(_optionsMenuLabel, "Opciones", OpenOptionsDialog);
+        host.Controls.Add(_optionsMenuLabel);
         _root.Controls.Add(host, 0, 0);
     }
 
@@ -850,7 +846,7 @@ internal sealed class MainForm : Form
         _saveButton.Enabled = !busy;
         _browseButton.Enabled = !busy;
         _folderTextBox.Enabled = !busy;
-        _optionsButton.Enabled = !busy;
+        _optionsMenuLabel.Enabled = !busy;
         _saveCommandAvailable = !busy;
         _startCommandAvailable = !busy && _server is not { IsRunning: true };
         _stopCommandAvailable = !busy && _server is { IsRunning: true };
@@ -1254,6 +1250,40 @@ internal sealed class MainForm : Form
         _themeGlyphLabel.Cursor = Cursors.Hand;
         _themeGlyphLabel.Click += (_, _) => ToggleTheme();
         RefreshThemeGlyph();
+    }
+
+    private void ConfigureMenuLabel(Label label, string text, Action action)
+    {
+        label.Text = text;
+        label.AutoSize = false;
+        label.Size = new Size(82, 28);
+        label.Margin = new Padding(0);
+        label.BackColor = Color.Transparent;
+        label.TextAlign = ContentAlignment.MiddleCenter;
+        label.Font = new Font("Segoe UI", 9.5f, FontStyle.Regular);
+        label.Cursor = Cursors.Hand;
+        label.MouseDown += (_, _) =>
+        {
+            label.BackColor = _palette.SurfaceAlt;
+            label.Invalidate();
+        };
+        label.MouseUp += (_, _) =>
+        {
+            label.BackColor = Color.Transparent;
+            label.Invalidate();
+        };
+        label.MouseLeave += (_, _) =>
+        {
+            label.BackColor = Color.Transparent;
+            label.Invalidate();
+        };
+        label.Click += (_, _) =>
+        {
+            if (label.Enabled)
+            {
+                action();
+            }
+        };
     }
 
     private void RefreshThemeGlyph(bool? darkOverride = null)

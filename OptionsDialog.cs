@@ -84,9 +84,9 @@ internal sealed class OptionsDialog : Form
         };
         root.Controls.Add(footer, 0, 3);
 
-        var saveButton = CreateButton("Guardar", primary: true);
+        var saveButton = CreateActionLabel("✓", "Guardar", _palette.AccentAlt);
         saveButton.Click += (_, _) => SaveAndClose();
-        var cancelButton = CreateButton("Cancelar", primary: false);
+        var cancelButton = CreateActionLabel("×", "Cancelar", _palette.MutedText);
         cancelButton.Click += (_, _) => DialogResult = DialogResult.Cancel;
         footer.Controls.Add(saveButton);
         footer.Controls.Add(cancelButton);
@@ -116,24 +116,29 @@ internal sealed class OptionsDialog : Form
 
         panel.Controls.Add(_foldersList, 0, 2);
 
-        var folderButtons = new FlowLayoutPanel
+        var folderButtons = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false
+            ColumnCount = 3,
+            RowCount = 1,
+            Margin = new Padding(0),
+            Padding = new Padding(0, 4, 0, 0)
         };
-        var addButton = CreateButton("Agregar carpeta", primary: false);
-        addButton.Width = 118;
+        folderButtons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34));
+        folderButtons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 28));
+        folderButtons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38));
+        var addButton = CreateActionLabel("+", "Agregar", _palette.AccentAlt);
         addButton.Click += (_, _) => AddFolder();
-        var removeButton = CreateButton("Quitar", primary: false);
-        removeButton.Width = 78;
+        var removeButton = CreateActionLabel("−", "Quitar", _palette.MutedText);
         removeButton.Click += (_, _) => RemoveSelectedFolder();
-        var rescanButton = CreateButton("Reescanear", primary: true);
-        rescanButton.Width = 108;
+        var rescanButton = CreateActionLabel("↻", "Reescanear", _palette.Accent);
         rescanButton.Click += (_, _) => _rescanAction();
-        folderButtons.Controls.Add(addButton);
-        folderButtons.Controls.Add(removeButton);
-        folderButtons.Controls.Add(rescanButton);
+        PrepareInlineAction(addButton);
+        PrepareInlineAction(removeButton);
+        PrepareInlineAction(rescanButton);
+        folderButtons.Controls.Add(addButton, 0, 0);
+        folderButtons.Controls.Add(removeButton, 1, 0);
+        folderButtons.Controls.Add(rescanButton, 2, 0);
         panel.Controls.Add(folderButtons, 0, 3);
 
         _deviceNameTextBox.Dock = DockStyle.Fill;
@@ -282,22 +287,45 @@ internal sealed class OptionsDialog : Form
         return wrapper;
     }
 
-    private Button CreateButton(string text, bool primary)
+    private Label CreateActionLabel(string icon, string text, Color accent)
     {
-        var button = new Button
+        var label = new Label
         {
-            Text = text,
-            Width = 126,
+            Text = $"{icon}  {text}",
+            AutoSize = false,
+            Width = Math.Max(96, TextRenderer.MeasureText(text, Font).Width + 42),
             Height = 34,
-            Margin = new Padding(8, 0, 0, 0),
-            FlatStyle = FlatStyle.Flat,
-            UseVisualStyleBackColor = false
+            Margin = new Padding(0, 0, 14, 0),
+            BackColor = Color.Transparent,
+            ForeColor = accent,
+            TextAlign = ContentAlignment.MiddleCenter,
+            Font = new Font("Segoe UI", 9.5f, FontStyle.Regular),
+            Cursor = Cursors.Hand,
+            Tag = accent
         };
-        button.FlatAppearance.BorderSize = 1;
-        button.BackColor = primary ? _palette.Accent : _palette.SurfaceAlt;
-        button.ForeColor = primary ? _palette.ButtonText : _palette.Text;
-        button.FlatAppearance.BorderColor = primary ? _palette.Accent : _palette.Border;
-        return button;
+        label.MouseDown += (_, _) =>
+        {
+            label.BackColor = Color.FromArgb(_palette.IsDark ? 42 : 24, accent);
+            label.Invalidate();
+        };
+        label.MouseUp += (_, _) =>
+        {
+            label.BackColor = Color.Transparent;
+            label.Invalidate();
+        };
+        label.MouseLeave += (_, _) =>
+        {
+            label.BackColor = Color.Transparent;
+            label.Invalidate();
+        };
+        return label;
+    }
+
+    private static void PrepareInlineAction(Label label)
+    {
+        label.Dock = DockStyle.Fill;
+        label.Width = 0;
+        label.Margin = new Padding(0, 0, 8, 0);
     }
 
     private void ConfigureSwitch(ToggleSwitch toggleSwitch, string text, bool isChecked)
@@ -326,6 +354,10 @@ internal sealed class OptionsDialog : Form
         else if (control is ToggleSwitch toggleSwitch)
         {
             toggleSwitch.ApplyPalette(_palette);
+        }
+        else if (control is Label label && label.Tag is Color labelColor)
+        {
+            label.ForeColor = labelColor;
         }
 
         foreach (Control child in control.Controls)
