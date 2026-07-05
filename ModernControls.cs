@@ -281,8 +281,8 @@ internal sealed class FlatIconButton : Control, IThemeAware
         DoubleBuffered = true;
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.UserPaint, true);
         Cursor = Cursors.Hand;
-        Size = new Size(34, 34);
-        MinimumSize = new Size(34, 34);
+        Size = new Size(40, 34);
+        MinimumSize = new Size(40, 34);
         TabStop = true;
     }
 
@@ -338,19 +338,33 @@ internal sealed class FlatIconButton : Control, IThemeAware
         ThemePaint.PaintParentBackground(this, e, _palette);
 
         var bounds = ClientRectangle;
-        bounds.Inflate(-1, -1);
-        var fill = _hovered || _pressed ? _palette.Elevated : _palette.SurfaceAlt;
-        if (_pressed)
+        bounds.Inflate(-2, -2);
+        var fill = IsAccent
+            ? Blend(_palette.Accent, _palette.Window, _palette.IsDark ? 0.18f : 0.08f)
+            : _palette.SurfaceAlt;
+
+        if (!Enabled)
+        {
+            fill = Blend(fill, _palette.Window, 0.42f);
+        }
+        else if (_pressed)
         {
             fill = Blend(fill, Color.Black, _palette.IsDark ? 0.15f : 0.05f);
         }
+        else if (_hovered)
+        {
+            fill = Blend(fill, IsAccent ? _palette.AccentAlt : _palette.Elevated, _palette.IsDark ? 0.20f : 0.12f);
+        }
 
         using var fillBrush = new SolidBrush(fill);
-        using var border = new Pen(Color.FromArgb(_hovered ? 140 : 70, _palette.Border));
-        e.Graphics.FillRectangle(fillBrush, bounds);
-        e.Graphics.DrawRectangle(border, bounds);
+        using var border = new Pen(IsAccent
+            ? Color.FromArgb(_hovered && Enabled ? 190 : 130, _palette.AccentAlt)
+            : Color.FromArgb(_hovered && Enabled ? 120 : 70, _palette.Border));
+        using var shape = RoundedRect(bounds, 10);
+        e.Graphics.FillPath(fillBrush, shape);
+        e.Graphics.DrawPath(border, shape);
 
-        var color = IsAccent ? _palette.AccentAlt : _palette.Text;
+        var color = !Enabled ? _palette.MutedText : IsAccent ? _palette.AccentAlt : _palette.Text;
         using var pen = new Pen(color, 2.2f)
         {
             StartCap = LineCap.Round,
@@ -384,7 +398,10 @@ internal sealed class FlatIconButton : Control, IThemeAware
                 graphics.FillPolygon(brush, play);
                 break;
             case FlatIconKind.Stop:
-                graphics.FillRectangle(brush, cx - 8, cy - 8, 16, 16);
+                using (var stopShape = RoundedRect(new Rectangle((int)(cx - 7), (int)(cy - 7), 14, 14), 4))
+                {
+                    graphics.FillPath(brush, stopShape);
+                }
                 break;
             case FlatIconKind.Save:
                 graphics.DrawRectangle(pen, cx - 9, cy - 9, 18, 18);
@@ -401,6 +418,22 @@ internal sealed class FlatIconButton : Control, IThemeAware
                 graphics.DrawLine(pen, cx + 9, cy, cx + 12, cy);
                 break;
         }
+    }
+
+    private static GraphicsPath RoundedRect(Rectangle rectangle, int radius)
+    {
+        var path = new GraphicsPath();
+        var diameter = radius * 2;
+        var arc = new Rectangle(rectangle.Location, new Size(diameter, diameter));
+        path.AddArc(arc, 180, 90);
+        arc.X = rectangle.Right - diameter;
+        path.AddArc(arc, 270, 90);
+        arc.Y = rectangle.Bottom - diameter;
+        path.AddArc(arc, 0, 90);
+        arc.X = rectangle.Left;
+        path.AddArc(arc, 90, 90);
+        path.CloseFigure();
+        return path;
     }
 
     private static Color Blend(Color from, Color to, float amount)

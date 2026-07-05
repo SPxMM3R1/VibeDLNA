@@ -28,10 +28,10 @@ internal sealed class MainForm : Form
     private readonly LinkLabel _serverLink = new();
     private readonly ThemeIconButton _themeButton = new();
     private readonly ToolTip _toolTip = new();
-    private readonly FlatIconButton _toolbarFolderButton = new();
     private readonly FlatIconButton _toolbarStartButton = new();
     private readonly FlatIconButton _toolbarStopButton = new();
     private readonly FlatIconButton _toolbarSaveButton = new();
+    private readonly ComboBox _toolsComboBox = new();
     private readonly DataGridView _statusGrid = new();
     private readonly DataGridView _logGrid = new();
     private readonly Label _sidebarServerLabel = new();
@@ -56,6 +56,7 @@ internal sealed class MainForm : Form
     private bool _isExiting;
     private bool _hasShown;
     private bool _isApplyingSettings;
+    private bool _isRefreshingTools;
 
     public MainForm(bool requestedStartMinimized)
     {
@@ -124,36 +125,16 @@ internal sealed class MainForm : Form
     {
         _root.Dock = DockStyle.Fill;
         _root.ColumnCount = 1;
-        _root.RowCount = 4;
+        _root.RowCount = 3;
         _root.Padding = new Padding(0);
-        _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
-        _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
+        _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
         _root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
         Controls.Add(_root);
 
-        BuildFlatMenu();
         BuildFlatToolbar();
         BuildFlatWorkspace();
         BuildFlatStatusBar();
-    }
-
-    private void BuildFlatMenu()
-    {
-        var menu = new MenuStrip
-        {
-            Dock = DockStyle.Fill,
-            GripStyle = ToolStripGripStyle.Hidden,
-            Padding = new Padding(10, 2, 0, 0),
-            BackColor = AppPalette.Dark.Window,
-            ForeColor = AppPalette.Dark.Text
-        };
-        menu.Items.Add("Archivo");
-        menu.Items.Add("Editar");
-        menu.Items.Add("Ver");
-        menu.Items.Add("Herramientas");
-        menu.Items.Add("Ayuda");
-        _root.Controls.Add(menu, 0, 0);
     }
 
     private void BuildFlatToolbar()
@@ -161,12 +142,13 @@ internal sealed class MainForm : Form
         var toolbar = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 2,
-            Padding = new Padding(10, 6, 10, 6)
+            ColumnCount = 3,
+            Padding = new Padding(12, 8, 12, 8)
         };
+        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 148));
         toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 410));
-        _root.Controls.Add(toolbar, 0, 1);
+        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 560));
+        _root.Controls.Add(toolbar, 0, 0);
 
         var left = new FlowLayoutPanel
         {
@@ -176,31 +158,45 @@ internal sealed class MainForm : Form
         };
         toolbar.Controls.Add(left, 0, 0);
 
-        ConfigureToolbarButton(_toolbarFolderButton, FlatIconKind.Folder, "Seleccionar carpeta", SelectFolder);
         ConfigureToolbarButton(_toolbarStartButton, FlatIconKind.Play, "Iniciar servidor", async () => await StartServerAsync(), accent: true);
         ConfigureToolbarButton(_toolbarStopButton, FlatIconKind.Stop, "Detener servidor", async () => await StopServerAsync());
         ConfigureToolbarButton(_toolbarSaveButton, FlatIconKind.Save, "Guardar opciones", () => SaveSettingsFromUi(showConfirmation: true));
-        left.Controls.AddRange(new Control[] { _toolbarFolderButton, _toolbarStartButton, _toolbarStopButton, _toolbarSaveButton });
+        left.Controls.AddRange(new Control[] { _toolbarStartButton, _toolbarStopButton, _toolbarSaveButton });
+
+        ConfigureTextBox(_folderTextBox);
+        _folderTextBox.ReadOnly = true;
+        _folderTextBox.PlaceholderText = "Selecciona la carpeta para compartir...";
+        _folderTextBox.Cursor = Cursors.Hand;
+        _folderTextBox.Margin = new Padding(22, 4, 22, 4);
+        _folderTextBox.TextAlign = HorizontalAlignment.Center;
+        _folderTextBox.Click += (_, _) => SelectFolder();
+        _toolTip.SetToolTip(_folderTextBox, "Click para seleccionar la carpeta compartida");
+        toolbar.Controls.Add(_folderTextBox, 1, 0);
 
         var right = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 3,
+            ColumnCount = 5,
             RowCount = 1
         };
+        right.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 190));
+        right.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 12));
         right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         right.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 12));
         right.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 50));
-        toolbar.Controls.Add(right, 1, 0);
+        toolbar.Controls.Add(right, 2, 0);
+
+        ConfigureToolsDropDown();
+        right.Controls.Add(_toolsComboBox, 0, 0);
 
         ConfigureTextBox(_deviceNameTextBox);
-        _deviceNameTextBox.Margin = new Padding(0, 2, 0, 2);
-        right.Controls.Add(_deviceNameTextBox, 0, 0);
+        _deviceNameTextBox.Margin = new Padding(0, 4, 0, 4);
+        right.Controls.Add(_deviceNameTextBox, 2, 0);
 
-        _themeButton.Margin = new Padding(4, 2, 0, 2);
+        _themeButton.Margin = new Padding(4, 4, 0, 4);
         _themeButton.Click += (_, _) => ToggleTheme();
         _toolTip.SetToolTip(_themeButton, "Cambiar tema");
-        right.Controls.Add(_themeButton, 2, 0);
+        right.Controls.Add(_themeButton, 4, 0);
     }
 
     private void BuildFlatWorkspace()
@@ -213,7 +209,7 @@ internal sealed class MainForm : Form
             SplitterDistance = 190,
             BackColor = AppPalette.Dark.Border
         };
-        _root.Controls.Add(split, 0, 2);
+        _root.Controls.Add(split, 0, 1);
 
         BuildFlatSidebar(split.Panel1);
         BuildFlatMain(split.Panel2);
@@ -225,7 +221,7 @@ internal sealed class MainForm : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 11,
+            RowCount = 5,
             Padding = new Padding(10, 8, 8, 8)
         };
         host.Controls.Add(sidebar);
@@ -233,12 +229,6 @@ internal sealed class MainForm : Form
         sidebar.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
         sidebar.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
         sidebar.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
-        sidebar.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
-        sidebar.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
-        sidebar.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
-        sidebar.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
-        sidebar.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
-        sidebar.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
         sidebar.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
         sidebar.Controls.Add(CreateSidebarHeader("ESTADO"), 0, 0);
@@ -248,21 +238,6 @@ internal sealed class MainForm : Form
         sidebar.Controls.Add(_sidebarServerLabel, 0, 1);
         sidebar.Controls.Add(_sidebarFolderLabel, 0, 2);
         sidebar.Controls.Add(_sidebarWindowsLabel, 0, 3);
-
-        sidebar.Controls.Add(CreateSidebarHeader("ACCIONES"), 0, 5);
-        ConfigureSwitch(_autoStartServerSwitch, "Auto inicio");
-        ConfigureSwitch(_startWithWindowsSwitch, "Windows");
-        ConfigureSwitch(_startMinimizedSwitch, "Minimizada");
-        ConfigureSwitch(_minimizeToTraySwitch, "Bandeja");
-        _autoStartServerSwitch.Width = 170;
-        _startWithWindowsSwitch.Width = 170;
-        _startMinimizedSwitch.Width = 170;
-        _minimizeToTraySwitch.Width = 170;
-        _startWithWindowsSwitch.CheckedChanged += (_, _) => _startMinimizedSwitch.Enabled = _startWithWindowsSwitch.Checked;
-        sidebar.Controls.Add(_autoStartServerSwitch, 0, 6);
-        sidebar.Controls.Add(_startWithWindowsSwitch, 0, 7);
-        sidebar.Controls.Add(_startMinimizedSwitch, 0, 8);
-        sidebar.Controls.Add(_minimizeToTraySwitch, 0, 9);
     }
 
     private void BuildFlatMain(Control host)
@@ -306,7 +281,7 @@ internal sealed class MainForm : Form
         status.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         status.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 360));
         status.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180));
-        _root.Controls.Add(status, 0, 3);
+        _root.Controls.Add(status, 0, 2);
 
         ConfigureLabel(_footerLabel, "Folder DLNA", 9f, FontStyle.Regular, muted: true);
         ConfigureLabel(_bottomAddressLabel, "Sin direccion activa", 9f, FontStyle.Regular, muted: true);
@@ -686,6 +661,7 @@ internal sealed class MainForm : Form
         _minimizeToTraySwitch.Checked = _settings.MinimizeToTray;
         SelectThemeMode(ParseThemeMode(_settings.ThemeMode));
         UpdateFolderState();
+        RefreshToolsDropDown();
         RefreshStatusView();
         _isApplyingSettings = false;
     }
@@ -701,6 +677,7 @@ internal sealed class MainForm : Form
         _settings.ThemeMode = _themeMode.ToString();
 
         SettingsService.Save(_settings);
+        RefreshToolsDropDown();
         RefreshStatusView();
         if (showConfirmation)
         {
@@ -849,7 +826,8 @@ internal sealed class MainForm : Form
         _trayStartStopItem.Enabled = !busy;
         _saveButton.Enabled = !busy;
         _browseButton.Enabled = !busy;
-        _toolbarFolderButton.Enabled = !busy;
+        _folderTextBox.Enabled = !busy;
+        _toolsComboBox.Enabled = !busy;
         _toolbarSaveButton.Enabled = !busy;
         _toolbarStartButton.Enabled = !busy && _server is not { IsRunning: true };
         _toolbarStopButton.Enabled = !busy && _server is { IsRunning: true };
@@ -948,6 +926,12 @@ internal sealed class MainForm : Form
             textBox.BackColor = _palette.Elevated;
             textBox.ForeColor = _palette.Text;
         }
+        else if (control is ComboBox comboBox)
+        {
+            comboBox.BackColor = _palette.Elevated;
+            comboBox.ForeColor = _palette.Text;
+            comboBox.FlatStyle = FlatStyle.Flat;
+        }
         else if (control is DataGridView grid)
         {
             ApplyGridPalette(grid);
@@ -1022,6 +1006,7 @@ internal sealed class MainForm : Form
         _sidebarServerLabel.Text = running ? "Servidor activo (1)" : "Servidor detenido (0)";
         _sidebarFolderLabel.Text = folderExists ? "Biblioteca lista (1)" : "Biblioteca pendiente (0)";
         _sidebarWindowsLabel.Text = _settings.StartWithWindows ? "Inicio Win: si" : "Inicio Win: no";
+        RefreshToolsDropDown();
 
         _bottomStateLabel.Text = running ? "DLNA activo" : "DLNA detenido";
         _bottomAddressLabel.Text = running && _server is not null ? _server.DescriptionUrl : "Sin direccion activa";
@@ -1095,6 +1080,83 @@ internal sealed class MainForm : Form
         textBox.BorderStyle = BorderStyle.FixedSingle;
         textBox.Font = new Font("Segoe UI", 10f);
     }
+
+    private void ConfigureToolsDropDown()
+    {
+        _toolsComboBox.Dock = DockStyle.Fill;
+        _toolsComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
+        _toolsComboBox.FlatStyle = FlatStyle.Flat;
+        _toolsComboBox.Font = new Font("Segoe UI", 9.5f);
+        _toolsComboBox.Margin = new Padding(0, 4, 0, 4);
+        _toolsComboBox.SelectedIndexChanged += (_, _) => ApplySelectedToolOption();
+        _toolTip.SetToolTip(_toolsComboBox, "Herramientas y comportamiento de inicio");
+        RefreshToolsDropDown();
+    }
+
+    private void RefreshToolsDropDown()
+    {
+        if (_toolsComboBox.IsDisposed)
+        {
+            return;
+        }
+
+        _isRefreshingTools = true;
+        _toolsComboBox.BeginUpdate();
+        _toolsComboBox.Items.Clear();
+        _toolsComboBox.Items.Add("Herramientas");
+        _toolsComboBox.Items.Add($"Auto inicio: {YesNo(_settings.AutoStartServer)}");
+        _toolsComboBox.Items.Add($"Inicio Windows: {YesNo(_settings.StartWithWindows)}");
+        _toolsComboBox.Items.Add($"Abrir minimizada: {YesNo(_settings.StartMinimized)}");
+        _toolsComboBox.Items.Add($"Cerrar a bandeja: {YesNo(_settings.MinimizeToTray)}");
+        _toolsComboBox.EndUpdate();
+        _toolsComboBox.SelectedIndex = 0;
+        _isRefreshingTools = false;
+    }
+
+    private void ApplySelectedToolOption()
+    {
+        if (_isRefreshingTools || _toolsComboBox.SelectedIndex <= 0)
+        {
+            return;
+        }
+
+        var changed = _toolsComboBox.SelectedIndex switch
+        {
+            1 => ToggleOption(value => _settings.AutoStartServer = value, _settings.AutoStartServer, "Auto inicio"),
+            2 => ToggleOption(value => _settings.StartWithWindows = value, _settings.StartWithWindows, "Inicio Windows"),
+            3 => ToggleOption(value => _settings.StartMinimized = value, _settings.StartMinimized, "Abrir minimizada"),
+            4 => ToggleOption(value => _settings.MinimizeToTray = value, _settings.MinimizeToTray, "Cerrar a bandeja"),
+            _ => string.Empty
+        };
+
+        if (string.IsNullOrWhiteSpace(changed))
+        {
+            RefreshToolsDropDown();
+            return;
+        }
+
+        SyncOptionSwitches();
+        SaveSettingsFromUi(showConfirmation: false);
+        Log($"Herramientas: {changed}");
+    }
+
+    private string ToggleOption(Action<bool> assign, bool currentValue, string label)
+    {
+        var nextValue = !currentValue;
+        assign(nextValue);
+        return $"{label}: {YesNo(nextValue)}";
+    }
+
+    private void SyncOptionSwitches()
+    {
+        _autoStartServerSwitch.Checked = _settings.AutoStartServer;
+        _startWithWindowsSwitch.Checked = _settings.StartWithWindows;
+        _startMinimizedSwitch.Checked = _settings.StartMinimized;
+        _startMinimizedSwitch.Enabled = _settings.StartWithWindows;
+        _minimizeToTraySwitch.Checked = _settings.MinimizeToTray;
+    }
+
+    private static string YesNo(bool value) => value ? "si" : "no";
 
     private void ConfigureToolbarButton(FlatIconButton button, FlatIconKind kind, string tooltip, Action action, bool accent = false)
     {
