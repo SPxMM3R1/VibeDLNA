@@ -586,23 +586,27 @@ internal sealed class ToggleSwitch : CheckBox, IThemeAware
         Padding = new Padding(52, 0, 0, 0);
     }
 
+    public Color HostBackColor { get; set; } = Color.Empty;
+
+    public bool ShowText { get; set; } = true;
+
     public void ApplyPalette(AppPalette palette)
     {
         _palette = palette;
-        BackColor = ThemePaint.ResolveBackColor(this, palette);
+        BackColor = ResolveHostBackColor();
         ForeColor = palette.Text;
         Invalidate();
     }
 
     protected override void OnPaintBackground(PaintEventArgs pevent)
     {
-        ThemePaint.PaintParentBackground(this, pevent, _palette);
+        PaintHostBackground(pevent.Graphics);
     }
 
     protected override void OnPaint(PaintEventArgs pevent)
     {
         pevent.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        ThemePaint.PaintParentBackground(this, pevent, _palette);
+        PaintHostBackground(pevent.Graphics);
 
         var track = new Rectangle(0, 6, 42, 22);
         var knobSize = 18;
@@ -624,13 +628,25 @@ internal sealed class ToggleSwitch : CheckBox, IThemeAware
         using var knobBrush = new SolidBrush(_palette.IsDark ? Color.White : Color.FromArgb(250, 252, 255));
         pevent.Graphics.FillEllipse(knobBrush, knobX, 8, knobSize, knobSize);
 
-        TextRenderer.DrawText(
-            pevent.Graphics,
-            Text,
-            Font,
-            new Rectangle(52, 0, Width - 52, Height),
-            Enabled ? _palette.Text : _palette.MutedText,
-            TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
+        if (ShowText)
+        {
+            TextRenderer.DrawText(
+                pevent.Graphics,
+                Text,
+                Font,
+                new Rectangle(52, 0, Width - 52, Height),
+                Enabled ? _palette.Text : _palette.MutedText,
+                TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
+        }
+    }
+
+    private Color ResolveHostBackColor() =>
+        HostBackColor.IsEmpty ? ThemePaint.ResolveBackColor(this, _palette) : HostBackColor;
+
+    private void PaintHostBackground(Graphics graphics)
+    {
+        using var brush = new SolidBrush(ResolveHostBackColor());
+        graphics.FillRectangle(brush, ClientRectangle);
     }
 
     private static GraphicsPath RoundedRect(Rectangle rectangle, int radius)

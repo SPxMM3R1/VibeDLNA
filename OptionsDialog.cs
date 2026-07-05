@@ -17,6 +17,14 @@ internal sealed class OptionsDialog : Form
     private readonly ToggleSwitch _startMinimizedSwitch = new();
     private readonly ToggleSwitch _minimizeToTraySwitch = new();
 
+    private Color DialogBackground => _palette.IsDark
+        ? Color.FromArgb(38, 41, 53)
+        : _palette.Surface;
+
+    private Color FieldBackground => _palette.IsDark
+        ? Color.FromArgb(70, 82, 108)
+        : _palette.Elevated;
+
     public OptionsDialog(AppSettings settings, AppPalette palette, Action rescanAction)
     {
         _settings = Clone(settings);
@@ -103,6 +111,7 @@ internal sealed class OptionsDialog : Form
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
 
         panel.Controls.Add(CreateHeader("Biblioteca"), 0, 0);
         panel.Controls.Add(CreateCaption("Carpetas compartidas"), 0, 1);
@@ -146,14 +155,10 @@ internal sealed class OptionsDialog : Form
         _deviceNameTextBox.Text = _settings.DeviceName;
         panel.Controls.Add(WrapWithCaption("Nombre visible en la TV", _deviceNameTextBox), 0, 4);
 
-        ConfigureSwitch(_shareVideosSwitch, "Compartir videos", _settings.ShareVideos);
-        ConfigureSwitch(_shareAudioSwitch, "Compartir audio", _settings.ShareAudio);
-        ConfigureSwitch(_shareImagesSwitch, "Compartir fotos", _settings.ShareImages);
-        ConfigureSwitch(_autoRescanSwitch, "Reescanear automaticamente", _settings.AutoRescanLibrary);
-        panel.Controls.Add(_shareVideosSwitch, 0, 5);
-        panel.Controls.Add(_shareAudioSwitch, 0, 6);
-        panel.Controls.Add(_shareImagesSwitch, 0, 7);
-        panel.Controls.Add(_autoRescanSwitch, 0, 8);
+        panel.Controls.Add(CreateSwitchRow(_shareVideosSwitch, "Compartir videos", _settings.ShareVideos), 0, 5);
+        panel.Controls.Add(CreateSwitchRow(_shareAudioSwitch, "Compartir audio", _settings.ShareAudio), 0, 6);
+        panel.Controls.Add(CreateSwitchRow(_shareImagesSwitch, "Compartir fotos", _settings.ShareImages), 0, 7);
+        panel.Controls.Add(CreateSwitchRow(_autoRescanSwitch, "Reescanear automaticamente", _settings.AutoRescanLibrary), 0, 8);
         return panel;
     }
 
@@ -169,18 +174,13 @@ internal sealed class OptionsDialog : Form
         panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
         panel.Controls.Add(CreateHeader("Comportamiento"), 0, 0);
-        ConfigureSwitch(_keepAwakeSwitch, "Mantener PC despierto con DLNA activo", _settings.KeepAwake);
-        ConfigureSwitch(_autoStartServerSwitch, "Iniciar servidor al abrir", _settings.AutoStartServer);
-        ConfigureSwitch(_startWithWindowsSwitch, "Iniciar con Windows", _settings.StartWithWindows);
-        ConfigureSwitch(_startMinimizedSwitch, "Abrir minimizada", _settings.StartMinimized);
-        ConfigureSwitch(_minimizeToTraySwitch, "Cerrar a bandeja", _settings.MinimizeToTray);
+        panel.Controls.Add(CreateSwitchRow(_keepAwakeSwitch, "Mantener PC despierto con DLNA activo", _settings.KeepAwake), 0, 1);
+        panel.Controls.Add(CreateSwitchRow(_autoStartServerSwitch, "Iniciar servidor al abrir", _settings.AutoStartServer), 0, 2);
+        panel.Controls.Add(CreateSwitchRow(_startWithWindowsSwitch, "Iniciar con Windows", _settings.StartWithWindows), 0, 3);
+        panel.Controls.Add(CreateSwitchRow(_startMinimizedSwitch, "Abrir minimizada", _settings.StartMinimized), 0, 4);
+        panel.Controls.Add(CreateSwitchRow(_minimizeToTraySwitch, "Cerrar a bandeja", _settings.MinimizeToTray), 0, 5);
         _startWithWindowsSwitch.CheckedChanged += (_, _) => _startMinimizedSwitch.Enabled = _startWithWindowsSwitch.Checked;
         _startMinimizedSwitch.Enabled = _startWithWindowsSwitch.Checked;
-        panel.Controls.Add(_keepAwakeSwitch, 0, 1);
-        panel.Controls.Add(_autoStartServerSwitch, 0, 2);
-        panel.Controls.Add(_startWithWindowsSwitch, 0, 3);
-        panel.Controls.Add(_startMinimizedSwitch, 0, 4);
-        panel.Controls.Add(_minimizeToTraySwitch, 0, 5);
         return panel;
     }
 
@@ -328,31 +328,80 @@ internal sealed class OptionsDialog : Form
         label.Margin = new Padding(0, 0, 8, 0);
     }
 
-    private void ConfigureSwitch(ToggleSwitch toggleSwitch, string text, bool isChecked)
+    private Control CreateSwitchRow(ToggleSwitch toggleSwitch, string text, bool isChecked)
     {
-        toggleSwitch.Text = text;
+        ConfigureSwitch(toggleSwitch, isChecked);
+
+        var row = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            Margin = new Padding(0),
+            Padding = new Padding(0, 2, 0, 2),
+            BackColor = DialogBackground,
+            Cursor = Cursors.Hand
+        };
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 56));
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+        var textLabel = new Label
+        {
+            Text = text,
+            Dock = DockStyle.Fill,
+            AutoSize = false,
+            BackColor = DialogBackground,
+            ForeColor = _palette.Text,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Font = new Font("Segoe UI", 9.5f, FontStyle.Regular),
+            Cursor = Cursors.Hand
+        };
+
+        void Toggle()
+        {
+            if (toggleSwitch.Enabled)
+            {
+                toggleSwitch.Checked = !toggleSwitch.Checked;
+            }
+        }
+
+        row.Click += (_, _) => Toggle();
+        textLabel.Click += (_, _) => Toggle();
+        row.Controls.Add(toggleSwitch, 0, 0);
+        row.Controls.Add(textLabel, 1, 0);
+        return row;
+    }
+
+    private void ConfigureSwitch(ToggleSwitch toggleSwitch, bool isChecked)
+    {
+        toggleSwitch.Text = string.Empty;
         toggleSwitch.Checked = isChecked;
-        toggleSwitch.Dock = DockStyle.Fill;
-        toggleSwitch.Width = 320;
+        toggleSwitch.ShowText = false;
+        toggleSwitch.Dock = DockStyle.Left;
+        toggleSwitch.Width = 48;
+        toggleSwitch.Height = 30;
+        toggleSwitch.Margin = new Padding(0);
+        toggleSwitch.HostBackColor = DialogBackground;
         toggleSwitch.ApplyPalette(_palette);
     }
 
     private void ApplyPalette(Control control)
     {
-        control.BackColor = _palette.Window;
+        control.BackColor = DialogBackground;
         control.ForeColor = _palette.Text;
         if (control is TextBox textBox)
         {
-            textBox.BackColor = _palette.Elevated;
+            textBox.BackColor = FieldBackground;
             textBox.ForeColor = _palette.Text;
         }
         else if (control is ListBox listBox)
         {
-            listBox.BackColor = _palette.Elevated;
+            listBox.BackColor = FieldBackground;
             listBox.ForeColor = _palette.Text;
         }
         else if (control is ToggleSwitch toggleSwitch)
         {
+            toggleSwitch.HostBackColor = DialogBackground;
             toggleSwitch.ApplyPalette(_palette);
         }
         else if (control is Label label && label.Tag is Color labelColor)

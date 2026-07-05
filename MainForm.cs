@@ -1017,6 +1017,11 @@ internal sealed class MainForm : Form
     {
         _trayMenu.BackColor = _palette.Surface;
         _trayMenu.ForeColor = _palette.Text;
+        _trayMenu.RenderMode = ToolStripRenderMode.Professional;
+        _trayMenu.Renderer = new ToolStripProfessionalRenderer(new AppMenuColorTable(_palette));
+        _trayMenu.ShowImageMargin = false;
+        _trayMenu.ShowCheckMargin = false;
+        _trayMenu.Padding = new Padding(2);
         foreach (ToolStripItem item in _trayMenu.Items)
         {
             item.BackColor = _palette.Surface;
