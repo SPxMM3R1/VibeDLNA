@@ -125,7 +125,7 @@ internal sealed class ThemeIconButton : Control, IThemeAware
     public void ApplyPalette(AppPalette palette)
     {
         _palette = palette;
-        BackColor = Color.Transparent;
+        BackColor = ThemePaint.ResolveBackColor(this, palette);
         ForeColor = palette.Text;
         IsDarkTheme = palette.IsDark;
         Invalidate();
@@ -209,7 +209,7 @@ internal sealed class ThemeIconButton : Control, IThemeAware
 
         if (IsDarkTheme)
         {
-            DrawMoon(e.Graphics, bounds, _buttonFill);
+            DrawMoon(e.Graphics, bounds);
         }
         else
         {
@@ -217,17 +217,18 @@ internal sealed class ThemeIconButton : Control, IThemeAware
         }
     }
 
-    private void DrawMoon(Graphics graphics, Rectangle bounds, Color buttonFill)
+    private void DrawMoon(Graphics graphics, Rectangle bounds)
     {
         var center = new PointF(bounds.Left + bounds.Width / 2f, bounds.Top + bounds.Height / 2f);
-        var radius = Math.Min(bounds.Width, bounds.Height) * 0.23f;
+        var radius = Math.Min(bounds.Width, bounds.Height) * 0.24f;
         using var moonBrush = new SolidBrush(Color.FromArgb(218, 232, 255));
-        using var cutBrush = new SolidBrush(buttonFill);
-        graphics.FillEllipse(moonBrush, center.X - radius, center.Y - radius, radius * 2, radius * 2);
-        graphics.FillEllipse(cutBrush, center.X - radius * 0.30f, center.Y - radius * 1.10f, radius * 2.10f, radius * 2.10f);
+        using var craterBrush = new SolidBrush(Color.FromArgb(92, 119, 145, 178));
+        using var glowPen = new Pen(Color.FromArgb(75, _palette.AccentAlt), 1.6f);
 
-        using var dot = new SolidBrush(Color.FromArgb(118, _palette.AccentAlt));
-        graphics.FillEllipse(dot, center.X - radius * 1.45f, center.Y + radius * 1.05f, 3f, 3f);
+        graphics.DrawEllipse(glowPen, center.X - radius - 3, center.Y - radius - 3, radius * 2 + 6, radius * 2 + 6);
+        graphics.FillEllipse(moonBrush, center.X - radius, center.Y - radius, radius * 2, radius * 2);
+        graphics.FillEllipse(craterBrush, center.X - radius * 0.35f, center.Y - radius * 0.42f, radius * 0.38f, radius * 0.38f);
+        graphics.FillEllipse(craterBrush, center.X + radius * 0.22f, center.Y + radius * 0.08f, radius * 0.28f, radius * 0.28f);
     }
 
     private void DrawSun(Graphics graphics, Rectangle bounds)
@@ -309,7 +310,7 @@ internal sealed class ModernButton : Button, IThemeAware
     {
         _palette = palette;
         ForeColor = IsPrimary ? palette.ButtonText : palette.Text;
-        BackColor = Color.Transparent;
+        BackColor = ThemePaint.ResolveBackColor(this, palette);
         Invalidate();
     }
 
@@ -430,7 +431,7 @@ internal sealed class ToggleSwitch : CheckBox, IThemeAware
     public void ApplyPalette(AppPalette palette)
     {
         _palette = palette;
-        BackColor = Color.Transparent;
+        BackColor = ThemePaint.ResolveBackColor(this, palette);
         ForeColor = palette.Text;
         Invalidate();
     }
@@ -516,7 +517,7 @@ internal sealed class StatusPill : Control, IThemeAware
     public void ApplyPalette(AppPalette palette)
     {
         _palette = palette;
-        BackColor = Color.Transparent;
+        BackColor = ThemePaint.ResolveBackColor(this, palette);
         ForeColor = palette.Text;
         Invalidate();
     }
@@ -591,7 +592,7 @@ internal sealed class LogoMark : Control, IThemeAware
     public void ApplyPalette(AppPalette palette)
     {
         _palette = palette;
-        BackColor = Color.Transparent;
+        BackColor = ThemePaint.ResolveBackColor(this, palette);
         Invalidate();
     }
 
