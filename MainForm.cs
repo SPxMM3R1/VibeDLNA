@@ -38,6 +38,7 @@ internal sealed class MainForm : Form
 
     private AppSettings _settings = new();
     private AppPalette _palette = AppPalette.Dark;
+    private AppThemeMode _themeMode = AppThemeMode.Dark;
     private DlnaServer? _server;
     private Icon? _windowIcon;
     private Icon? _trayIcon;
@@ -102,7 +103,7 @@ internal sealed class MainForm : Form
     {
         base.WndProc(ref message);
 
-        if (message.Msg == WmSettingChange && ParseThemeMode(_settings.ThemeMode) == AppThemeMode.System)
+        if (message.Msg == WmSettingChange && _themeMode == AppThemeMode.System)
         {
             BeginInvoke(ApplyCurrentTheme);
         }
@@ -505,7 +506,7 @@ internal sealed class MainForm : Form
         _settings.StartWithWindows = _startWithWindowsSwitch.Checked;
         _settings.StartMinimized = _startMinimizedSwitch.Checked;
         _settings.MinimizeToTray = _minimizeToTraySwitch.Checked;
-        _settings.ThemeMode = GetSelectedThemeMode().ToString();
+        _settings.ThemeMode = _themeMode.ToString();
 
         SettingsService.Save(_settings);
         if (showConfirmation)
@@ -697,15 +698,15 @@ internal sealed class MainForm : Form
             return;
         }
 
-        _themeButton.IsDarkTheme = !_themeButton.IsDarkTheme;
-        _settings.ThemeMode = GetSelectedThemeMode().ToString();
+        _themeMode = _palette.IsDark ? AppThemeMode.Light : AppThemeMode.Dark;
+        _settings.ThemeMode = _themeMode.ToString();
         ApplyCurrentTheme();
         SaveSettingsFromUi(showConfirmation: false);
     }
 
     private void ApplyCurrentTheme()
     {
-        _palette = SystemTheme.Resolve(GetSelectedThemeMode());
+        _palette = SystemTheme.Resolve(_themeMode);
         BackColor = _palette.Window;
         ForeColor = _palette.Text;
         NativeTheme.ApplyWindowEffects(this, _palette.IsDark);
@@ -739,9 +740,14 @@ internal sealed class MainForm : Form
             label.BackColor = Color.Transparent;
             label.ForeColor = Equals(label.Tag, "muted") ? _palette.MutedText : _palette.Text;
         }
+        else if (control is TableLayoutPanel or FlowLayoutPanel)
+        {
+            control.BackColor = control == _root ? _palette.Window : ThemePaint.ResolveBackColor(control, _palette);
+            control.ForeColor = _palette.Text;
+        }
         else
         {
-            control.BackColor = control == this || control == _root ? _palette.Window : Color.Transparent;
+            control.BackColor = control == this || control == _root ? _palette.Window : ThemePaint.ResolveBackColor(control, _palette);
             control.ForeColor = _palette.Text;
         }
 
@@ -805,6 +811,8 @@ internal sealed class MainForm : Form
 
     private void SelectThemeMode(AppThemeMode mode)
     {
+        _themeMode = mode;
+
         if (mode == AppThemeMode.System)
         {
             _themeButton.IsDarkTheme = SystemTheme.Resolve(AppThemeMode.System).IsDark;
@@ -815,7 +823,7 @@ internal sealed class MainForm : Form
     }
 
     private AppThemeMode GetSelectedThemeMode() =>
-        _themeButton.IsDarkTheme ? AppThemeMode.Dark : AppThemeMode.Light;
+        _themeMode;
 
     private static AppThemeMode ParseThemeMode(string value) =>
         Enum.TryParse<AppThemeMode>(value, ignoreCase: true, out var mode) ? mode : AppThemeMode.System;

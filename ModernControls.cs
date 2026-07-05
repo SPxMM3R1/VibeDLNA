@@ -7,6 +7,33 @@ internal interface IThemeAware
     void ApplyPalette(AppPalette palette);
 }
 
+internal static class ThemePaint
+{
+    public static Color ResolveBackColor(Control control, AppPalette palette)
+    {
+        for (var parent = control.Parent; parent is not null; parent = parent.Parent)
+        {
+            if (parent is ModernCard)
+            {
+                return palette.Surface;
+            }
+
+            if (parent.BackColor != Color.Transparent && parent.BackColor.A > 0)
+            {
+                return parent.BackColor;
+            }
+        }
+
+        return palette.Window;
+    }
+
+    public static void PaintParentBackground(Control control, PaintEventArgs e, AppPalette palette)
+    {
+        using var brush = new SolidBrush(ResolveBackColor(control, palette));
+        e.Graphics.FillRectangle(brush, control.ClientRectangle);
+    }
+}
+
 internal sealed class ModernCard : Panel, IThemeAware
 {
     private AppPalette _palette = AppPalette.Dark;
@@ -81,10 +108,12 @@ internal sealed class ThemeIconButton : Control, IThemeAware
     private AppPalette _palette = AppPalette.Dark;
     private bool _hovered;
     private bool _pressed;
+    private Color _buttonFill;
 
     public ThemeIconButton()
     {
         DoubleBuffered = true;
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.UserPaint, true);
         Cursor = Cursors.Hand;
         Size = new Size(46, 34);
         MinimumSize = new Size(42, 32);
@@ -100,6 +129,11 @@ internal sealed class ThemeIconButton : Control, IThemeAware
         ForeColor = palette.Text;
         IsDarkTheme = palette.IsDark;
         Invalidate();
+    }
+
+    protected override void OnPaintBackground(PaintEventArgs pevent)
+    {
+        ThemePaint.PaintParentBackground(this, pevent, _palette);
     }
 
     protected override void OnClick(EventArgs e)
@@ -155,26 +189,27 @@ internal sealed class ThemeIconButton : Control, IThemeAware
     protected override void OnPaint(PaintEventArgs e)
     {
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        ThemePaint.PaintParentBackground(this, e, _palette);
         var bounds = ClientRectangle;
         bounds.Inflate(-1, -1);
 
-        var fill = _hovered
+        _buttonFill = _hovered
             ? Blend(_palette.Elevated, _palette.Accent, _palette.IsDark ? 0.18f : 0.09f)
             : _palette.Elevated;
         if (_pressed)
         {
-            fill = Blend(fill, Color.Black, _palette.IsDark ? 0.22f : 0.06f);
+            _buttonFill = Blend(_buttonFill, Color.Black, _palette.IsDark ? 0.22f : 0.06f);
         }
 
         using var path = RoundedRect(bounds, 8);
-        using var brush = new SolidBrush(fill);
+        using var brush = new SolidBrush(_buttonFill);
         using var border = new Pen(_hovered ? _palette.Accent : _palette.Border);
         e.Graphics.FillPath(brush, path);
         e.Graphics.DrawPath(border, path);
 
         if (IsDarkTheme)
         {
-            DrawMoon(e.Graphics, bounds);
+            DrawMoon(e.Graphics, bounds, _buttonFill);
         }
         else
         {
@@ -182,17 +217,17 @@ internal sealed class ThemeIconButton : Control, IThemeAware
         }
     }
 
-    private void DrawMoon(Graphics graphics, Rectangle bounds)
+    private void DrawMoon(Graphics graphics, Rectangle bounds, Color buttonFill)
     {
         var center = new PointF(bounds.Left + bounds.Width / 2f, bounds.Top + bounds.Height / 2f);
-        var radius = Math.Min(bounds.Width, bounds.Height) * 0.26f;
+        var radius = Math.Min(bounds.Width, bounds.Height) * 0.23f;
         using var moonBrush = new SolidBrush(Color.FromArgb(218, 232, 255));
-        using var cutBrush = new SolidBrush(_hovered ? Blend(_palette.Elevated, _palette.Accent, 0.18f) : _palette.Elevated);
+        using var cutBrush = new SolidBrush(buttonFill);
         graphics.FillEllipse(moonBrush, center.X - radius, center.Y - radius, radius * 2, radius * 2);
-        graphics.FillEllipse(cutBrush, center.X - radius * 0.18f, center.Y - radius * 1.08f, radius * 2.08f, radius * 2.08f);
+        graphics.FillEllipse(cutBrush, center.X - radius * 0.30f, center.Y - radius * 1.10f, radius * 2.10f, radius * 2.10f);
 
         using var dot = new SolidBrush(Color.FromArgb(118, _palette.AccentAlt));
-        graphics.FillEllipse(dot, center.X - radius * 1.45f, center.Y + radius * 0.95f, 3.5f, 3.5f);
+        graphics.FillEllipse(dot, center.X - radius * 1.45f, center.Y + radius * 1.05f, 3f, 3f);
     }
 
     private void DrawSun(Graphics graphics, Rectangle bounds)
@@ -256,8 +291,11 @@ internal sealed class ModernButton : Button, IThemeAware
 
     public ModernButton()
     {
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.UserPaint, true);
         FlatStyle = FlatStyle.Flat;
         FlatAppearance.BorderSize = 0;
+        FlatAppearance.MouseDownBackColor = Color.Transparent;
+        FlatAppearance.MouseOverBackColor = Color.Transparent;
         Height = 38;
         MinimumSize = new Size(112, 38);
         Cursor = Cursors.Hand;
@@ -273,6 +311,11 @@ internal sealed class ModernButton : Button, IThemeAware
         ForeColor = IsPrimary ? palette.ButtonText : palette.Text;
         BackColor = Color.Transparent;
         Invalidate();
+    }
+
+    protected override void OnPaintBackground(PaintEventArgs pevent)
+    {
+        ThemePaint.PaintParentBackground(this, pevent, _palette);
     }
 
     protected override void OnMouseEnter(EventArgs e)
@@ -307,6 +350,7 @@ internal sealed class ModernButton : Button, IThemeAware
     protected override void OnPaint(PaintEventArgs e)
     {
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        ThemePaint.PaintParentBackground(this, e, _palette);
         var bounds = ClientRectangle;
         bounds.Inflate(-1, -1);
 
@@ -374,6 +418,7 @@ internal sealed class ToggleSwitch : CheckBox, IThemeAware
 
     public ToggleSwitch()
     {
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.UserPaint, true);
         AutoSize = false;
         Height = 34;
         Width = 300;
@@ -390,10 +435,15 @@ internal sealed class ToggleSwitch : CheckBox, IThemeAware
         Invalidate();
     }
 
+    protected override void OnPaintBackground(PaintEventArgs pevent)
+    {
+        ThemePaint.PaintParentBackground(this, pevent, _palette);
+    }
+
     protected override void OnPaint(PaintEventArgs pevent)
     {
         pevent.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        pevent.Graphics.Clear(_palette.Surface);
+        ThemePaint.PaintParentBackground(this, pevent, _palette);
 
         var track = new Rectangle(0, 6, 42, 22);
         var knobSize = 18;
@@ -455,6 +505,7 @@ internal sealed class StatusPill : Control, IThemeAware
     public StatusPill()
     {
         DoubleBuffered = true;
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.UserPaint, true);
         Height = 30;
         Width = 156;
         Font = new Font("Segoe UI", 9f, FontStyle.Bold);
@@ -470,9 +521,15 @@ internal sealed class StatusPill : Control, IThemeAware
         Invalidate();
     }
 
+    protected override void OnPaintBackground(PaintEventArgs pevent)
+    {
+        ThemePaint.PaintParentBackground(this, pevent, _palette);
+    }
+
     protected override void OnPaint(PaintEventArgs e)
     {
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        ThemePaint.PaintParentBackground(this, e, _palette);
         var accent = Kind switch
         {
             StatusKind.Online => _palette.Success,
@@ -524,6 +581,7 @@ internal sealed class LogoMark : Control, IThemeAware
     public LogoMark()
     {
         DoubleBuffered = true;
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.UserPaint, true);
         Size = new Size(72, 72);
         MinimumSize = new Size(56, 56);
     }
@@ -537,9 +595,15 @@ internal sealed class LogoMark : Control, IThemeAware
         Invalidate();
     }
 
+    protected override void OnPaintBackground(PaintEventArgs pevent)
+    {
+        ThemePaint.PaintParentBackground(this, pevent, _palette);
+    }
+
     protected override void OnPaint(PaintEventArgs e)
     {
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        ThemePaint.PaintParentBackground(this, e, _palette);
         AppIcon.DrawLogo(e.Graphics, ClientRectangle, Active);
 
         if (Active)
