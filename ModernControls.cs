@@ -15,7 +15,7 @@ internal static class ThemePaint
         {
             if (parent is ModernCard)
             {
-                return palette.Surface;
+                return palette.Window;
             }
 
             if (parent.BackColor != Color.Transparent && parent.BackColor.A > 0)
@@ -52,7 +52,7 @@ internal sealed class ModernCard : Panel, IThemeAware
     public void ApplyPalette(AppPalette palette)
     {
         _palette = palette;
-        BackColor = palette.Surface;
+        BackColor = palette.Window;
         ForeColor = palette.Text;
         Invalidate();
     }
@@ -60,28 +60,8 @@ internal sealed class ModernCard : Panel, IThemeAware
     protected override void OnPaint(PaintEventArgs e)
     {
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        var bounds = ClientRectangle;
-        bounds.Width -= 1;
-        bounds.Height -= 1;
-
-        using var path = RoundedRect(bounds, 8);
-        using var brush = new SolidBrush(_palette.Surface);
-        using var border = new Pen(_palette.Border);
-        using var highlight = new Pen(Color.FromArgb(_palette.IsDark ? 32 : 110, Color.White));
-        e.Graphics.FillPath(brush, path);
-        e.Graphics.DrawPath(border, path);
-        e.Graphics.DrawLine(highlight, bounds.Left + 10, bounds.Top + 1, bounds.Right - 10, bounds.Top + 1);
-
-        if (!AccentColor.IsEmpty)
-        {
-            using var accentBrush = new LinearGradientBrush(
-                new Rectangle(bounds.Left, bounds.Top, 4, bounds.Height),
-                AccentColor,
-                Color.FromArgb(Math.Max(80, (int)AccentColor.A), AccentColor.R, AccentColor.G, AccentColor.B),
-                LinearGradientMode.Vertical);
-            using var accentPath = RoundedRect(new Rectangle(bounds.Left, bounds.Top, 4, bounds.Height), 4);
-            e.Graphics.FillPath(accentBrush, accentPath);
-        }
+        using var background = new SolidBrush(_palette.Window);
+        e.Graphics.FillRectangle(background, ClientRectangle);
 
         base.OnPaint(e);
     }
@@ -193,19 +173,16 @@ internal sealed class ThemeIconButton : Control, IThemeAware
         var bounds = ClientRectangle;
         bounds.Inflate(-1, -1);
 
-        _buttonFill = _hovered
-            ? Blend(_palette.Elevated, _palette.Accent, _palette.IsDark ? 0.18f : 0.09f)
-            : _palette.Elevated;
+        _buttonFill = ThemePaint.ResolveBackColor(this, _palette);
         if (_pressed)
         {
-            _buttonFill = Blend(_buttonFill, Color.Black, _palette.IsDark ? 0.22f : 0.06f);
+            _buttonFill = Blend(_buttonFill, _palette.Elevated, 0.35f);
         }
 
-        using var path = RoundedRect(bounds, 8);
-        using var brush = new SolidBrush(_buttonFill);
-        using var border = new Pen(_hovered ? _palette.Accent : _palette.Border);
-        e.Graphics.FillPath(brush, path);
-        e.Graphics.DrawPath(border, path);
+        using var hoverBrush = new SolidBrush(_hovered || _pressed ? Blend(_palette.Elevated, _palette.Accent, _palette.IsDark ? 0.08f : 0.05f) : _buttonFill);
+        using var border = new Pen(_hovered ? _palette.Accent : Color.FromArgb(_palette.IsDark ? 72 : 96, _palette.Border));
+        e.Graphics.FillRectangle(hoverBrush, bounds);
+        e.Graphics.DrawRectangle(border, bounds);
 
         if (IsDarkTheme)
         {
@@ -284,6 +261,159 @@ internal sealed class ThemeIconButton : Control, IThemeAware
     }
 }
 
+internal enum FlatIconKind
+{
+    Folder,
+    Play,
+    Stop,
+    Save,
+    Settings
+}
+
+internal sealed class FlatIconButton : Control, IThemeAware
+{
+    private AppPalette _palette = AppPalette.Dark;
+    private bool _hovered;
+    private bool _pressed;
+
+    public FlatIconButton()
+    {
+        DoubleBuffered = true;
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.UserPaint, true);
+        Cursor = Cursors.Hand;
+        Size = new Size(34, 34);
+        MinimumSize = new Size(34, 34);
+        TabStop = true;
+    }
+
+    public FlatIconKind IconKind { get; set; }
+
+    public bool IsAccent { get; set; }
+
+    public void ApplyPalette(AppPalette palette)
+    {
+        _palette = palette;
+        BackColor = ThemePaint.ResolveBackColor(this, palette);
+        ForeColor = palette.Text;
+        Invalidate();
+    }
+
+    protected override void OnPaintBackground(PaintEventArgs pevent)
+    {
+        ThemePaint.PaintParentBackground(this, pevent, _palette);
+    }
+
+    protected override void OnMouseEnter(EventArgs e)
+    {
+        _hovered = true;
+        Invalidate();
+        base.OnMouseEnter(e);
+    }
+
+    protected override void OnMouseLeave(EventArgs e)
+    {
+        _hovered = false;
+        _pressed = false;
+        Invalidate();
+        base.OnMouseLeave(e);
+    }
+
+    protected override void OnMouseDown(MouseEventArgs e)
+    {
+        _pressed = true;
+        Invalidate();
+        base.OnMouseDown(e);
+    }
+
+    protected override void OnMouseUp(MouseEventArgs e)
+    {
+        _pressed = false;
+        Invalidate();
+        base.OnMouseUp(e);
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        ThemePaint.PaintParentBackground(this, e, _palette);
+
+        var bounds = ClientRectangle;
+        bounds.Inflate(-1, -1);
+        var fill = _hovered || _pressed ? _palette.Elevated : _palette.SurfaceAlt;
+        if (_pressed)
+        {
+            fill = Blend(fill, Color.Black, _palette.IsDark ? 0.15f : 0.05f);
+        }
+
+        using var fillBrush = new SolidBrush(fill);
+        using var border = new Pen(Color.FromArgb(_hovered ? 140 : 70, _palette.Border));
+        e.Graphics.FillRectangle(fillBrush, bounds);
+        e.Graphics.DrawRectangle(border, bounds);
+
+        var color = IsAccent ? _palette.AccentAlt : _palette.Text;
+        using var pen = new Pen(color, 2.2f)
+        {
+            StartCap = LineCap.Round,
+            EndCap = LineCap.Round,
+            LineJoin = LineJoin.Round
+        };
+        using var brush = new SolidBrush(color);
+        DrawIcon(e.Graphics, bounds, pen, brush);
+    }
+
+    private void DrawIcon(Graphics graphics, Rectangle bounds, Pen pen, Brush brush)
+    {
+        var cx = bounds.Left + bounds.Width / 2f;
+        var cy = bounds.Top + bounds.Height / 2f;
+        switch (IconKind)
+        {
+            case FlatIconKind.Folder:
+                graphics.DrawLine(pen, cx - 10, cy - 4, cx - 4, cy - 4);
+                graphics.DrawLine(pen, cx - 4, cy - 4, cx - 2, cy - 8);
+                graphics.DrawLine(pen, cx - 2, cy - 8, cx + 4, cy - 8);
+                graphics.DrawLine(pen, cx + 4, cy - 8, cx + 7, cy - 4);
+                graphics.DrawRectangle(pen, cx - 10, cy - 4, 20, 14);
+                break;
+            case FlatIconKind.Play:
+                var play = new[]
+                {
+                    new PointF(cx - 5, cy - 9),
+                    new PointF(cx - 5, cy + 9),
+                    new PointF(cx + 9, cy)
+                };
+                graphics.FillPolygon(brush, play);
+                break;
+            case FlatIconKind.Stop:
+                graphics.FillRectangle(brush, cx - 8, cy - 8, 16, 16);
+                break;
+            case FlatIconKind.Save:
+                graphics.DrawRectangle(pen, cx - 9, cy - 9, 18, 18);
+                graphics.DrawLine(pen, cx - 5, cy - 9, cx - 5, cy - 1);
+                graphics.DrawLine(pen, cx + 5, cy - 9, cx + 5, cy - 2);
+                graphics.DrawRectangle(pen, cx - 5, cy + 3, 10, 6);
+                break;
+            case FlatIconKind.Settings:
+                graphics.DrawEllipse(pen, cx - 7, cy - 7, 14, 14);
+                graphics.FillEllipse(brush, cx - 2.5f, cy - 2.5f, 5, 5);
+                graphics.DrawLine(pen, cx, cy - 12, cx, cy - 9);
+                graphics.DrawLine(pen, cx, cy + 9, cx, cy + 12);
+                graphics.DrawLine(pen, cx - 12, cy, cx - 9, cy);
+                graphics.DrawLine(pen, cx + 9, cy, cx + 12, cy);
+                break;
+        }
+    }
+
+    private static Color Blend(Color from, Color to, float amount)
+    {
+        amount = Math.Clamp(amount, 0f, 1f);
+        return Color.FromArgb(
+            from.A + (int)((to.A - from.A) * amount),
+            from.R + (int)((to.R - from.R) * amount),
+            from.G + (int)((to.G - from.G) * amount),
+            from.B + (int)((to.B - from.B) * amount));
+    }
+}
+
 internal sealed class ModernButton : Button, IThemeAware
 {
     private AppPalette _palette = AppPalette.Dark;
@@ -355,34 +485,34 @@ internal sealed class ModernButton : Button, IThemeAware
         var bounds = ClientRectangle;
         bounds.Inflate(-1, -1);
 
-        var fill = IsPrimary
-            ? _palette.Accent
-            : _palette.Elevated;
+        var fill = ThemePaint.ResolveBackColor(this, _palette);
         if (!Enabled)
         {
             fill = Blend(fill, _palette.Window, 0.45f);
         }
         else if (_pressed)
         {
-            fill = Blend(fill, Color.Black, _palette.IsDark ? 0.25f : 0.08f);
+            fill = Blend(fill, _palette.Elevated, 0.45f);
         }
         else if (_hovered)
         {
-            fill = IsPrimary ? Blend(fill, Color.White, 0.12f) : Blend(fill, _palette.Accent, 0.12f);
+            fill = Blend(fill, IsPrimary ? _palette.Accent : _palette.Elevated, _palette.IsDark ? 0.18f : 0.10f);
         }
 
-        using var path = RoundedRect(bounds, 8);
         using var brush = new SolidBrush(fill);
-        using var border = new Pen(IsPrimary ? Blend(_palette.Accent, Color.White, 0.18f) : _palette.Border);
-        e.Graphics.FillPath(brush, path);
-        e.Graphics.DrawPath(border, path);
+        using var border = new Pen(IsPrimary ? _palette.Accent : Color.FromArgb(_palette.IsDark ? 80 : 110, _palette.Border));
+        e.Graphics.FillRectangle(brush, bounds);
+        e.Graphics.DrawRectangle(border, bounds);
+
+        using var accentPen = new Pen(IsPrimary ? _palette.Accent : _palette.Border, 2f);
+        e.Graphics.DrawLine(accentPen, bounds.Left + 8, bounds.Bottom - 3, bounds.Right - 8, bounds.Bottom - 3);
 
         TextRenderer.DrawText(
             e.Graphics,
             Text,
             Font,
             bounds,
-            Enabled ? ForeColor : _palette.MutedText,
+            Enabled ? (IsPrimary ? _palette.Accent : ForeColor) : _palette.MutedText,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
     }
 
@@ -541,12 +671,11 @@ internal sealed class StatusPill : Control, IThemeAware
         var bounds = ClientRectangle;
         bounds.Inflate(-1, -1);
 
-        using var path = RoundedRect(bounds, 8);
         using var brush = new SolidBrush(fill);
         using var border = new Pen(Color.FromArgb(_palette.IsDark ? 150 : 110, accent));
         using var dot = new SolidBrush(accent);
-        e.Graphics.FillPath(brush, path);
-        e.Graphics.DrawPath(border, path);
+        e.Graphics.FillRectangle(brush, bounds);
+        e.Graphics.DrawRectangle(border, bounds);
         e.Graphics.FillEllipse(dot, 12, 11, 8, 8);
 
         TextRenderer.DrawText(
