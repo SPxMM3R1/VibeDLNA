@@ -22,7 +22,7 @@ internal sealed class SsdpServer : IDisposable
     {
         _uuid = uuid;
         _locationFactory = locationFactory;
-        _serverHeader = $"Windows/{Environment.OSVersion.Version.Major}.{Environment.OSVersion.Version.Minor} UPnP/1.0 FolderDlnaServer/1.0";
+        _serverHeader = $"Windows/{Environment.OSVersion.Version.Major}.{Environment.OSVersion.Version.Minor} UPnP/1.0 VibeDLNA/1.0";
     }
 
     private IEnumerable<(string Target, string Usn)> NotificationTargets

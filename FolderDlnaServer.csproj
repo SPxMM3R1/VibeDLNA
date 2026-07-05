@@ -6,7 +6,8 @@
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
-    <ApplicationIcon>Assets\FolderDlna.ico</ApplicationIcon>
+    <AssemblyName>VibeDLNA</AssemblyName>
+    <ApplicationIcon>Assets\VibeDLNA.ico</ApplicationIcon>
   </PropertyGroup>
 
 </Project>

@@ -469,7 +469,7 @@ internal sealed class DlnaServer : IDisposable
         var builder = new StringBuilder();
         builder.Append("HTTP/1.1 ").Append(statusCode).Append(' ').Append(reasonPhrase).Append("\r\n");
         builder.Append("Date: ").Append(DateTime.UtcNow.ToString("R")).Append("\r\n");
-        builder.Append("Server: Windows UPnP/1.0 FolderDlnaServer/1.0\r\n");
+        builder.Append("Server: Windows UPnP/1.0 VibeDLNA/1.0\r\n");
         builder.Append("Connection: close\r\n");
         builder.Append("Content-Type: ").Append(contentType).Append("\r\n");
         builder.Append("Content-Length: ").Append(contentLength).Append("\r\n");

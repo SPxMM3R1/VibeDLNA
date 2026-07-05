@@ -187,13 +187,13 @@ internal sealed class OptionsDialog : Form
             .ToList();
         if (folders.Count == 0)
         {
-            MessageBox.Show(this, "Agrega al menos una carpeta valida.", "Folder DLNA", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "Agrega al menos una carpeta valida.", "VibeDLNA", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
         if (!_shareVideosSwitch.Checked && !_shareAudioSwitch.Checked && !_shareImagesSwitch.Checked)
         {
-            MessageBox.Show(this, "Deja al menos un tipo de archivo activo.", "Folder DLNA", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "Deja al menos un tipo de archivo activo.", "VibeDLNA", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 

@@ -21,10 +21,10 @@ internal static class DlnaXml
               <device>
                 <deviceType>urn:schemas-upnp-org:device:MediaServer:1</deviceType>
                 <friendlyName>{escapedName}</friendlyName>
-                <manufacturer>Folder DLNA</manufacturer>
+                <manufacturer>VibeDLNA</manufacturer>
                 <manufacturerURL>https://openai.com</manufacturerURL>
                 <modelDescription>Servidor DLNA local para una carpeta de Windows</modelDescription>
-                <modelName>Folder DLNA Server</modelName>
+                <modelName>VibeDLNA Server</modelName>
                 <modelNumber>1.0</modelNumber>
                 <serialNumber>{uuid}</serialNumber>
                 <UDN>uuid:{uuid}</UDN>

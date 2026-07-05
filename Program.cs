@@ -7,14 +7,14 @@ internal static class Program
     {
         ApplicationConfiguration.Initialize();
 
-        using var mutex = new Mutex(true, "FolderDlnaServer.SingleInstance", out var isFirstInstance);
+        using var mutex = new Mutex(true, "VibeDLNA.SingleInstance", out var isFirstInstance);
         if (!isFirstInstance)
         {
             if (!args.Any(static arg => arg.Equals("--minimized", StringComparison.OrdinalIgnoreCase)))
             {
                 MessageBox.Show(
-                    "Folder DLNA ya esta abierto. Revisa el area de notificacion.",
-                    "Folder DLNA",
+                    "VibeDLNA ya esta abierto. Revisa el area de notificacion.",
+                    "VibeDLNA",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
             }

@@ -5,7 +5,8 @@ namespace FolderDlnaServer;
 
 internal static class SettingsService
 {
-    private const string RunValueName = "FolderDlnaServer";
+    private const string RunValueName = "VibeDLNA";
+    private const string LegacyRunValueName = "FolderDlnaServer";
     private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
@@ -14,17 +15,23 @@ internal static class SettingsService
     };
 
     public static string AppDataFolder =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VibeDLNA");
+
+    private static string LegacyAppDataFolder =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "FolderDlnaServer");
 
     public static string SettingsPath => Path.Combine(AppDataFolder, "settings.json");
+
+    private static string LegacySettingsPath => Path.Combine(LegacyAppDataFolder, "settings.json");
 
     public static AppSettings Load()
     {
         try
         {
-            if (File.Exists(SettingsPath))
+            var path = File.Exists(SettingsPath) ? SettingsPath : LegacySettingsPath;
+            if (File.Exists(path))
             {
-                var json = File.ReadAllText(SettingsPath);
+                var json = File.ReadAllText(path);
                 var settings = JsonSerializer.Deserialize<AppSettings>(json, SerializerOptions) ?? new AppSettings();
                 Normalize(settings);
                 settings.StartWithWindows = IsStartupEnabled();
@@ -64,17 +71,20 @@ internal static class SettingsService
                 ? $"\"{executablePath}\" --minimized"
                 : $"\"{executablePath}\"";
             key.SetValue(RunValueName, command, RegistryValueKind.String);
+            key.DeleteValue(LegacyRunValueName, throwOnMissingValue: false);
         }
         else
         {
             key.DeleteValue(RunValueName, throwOnMissingValue: false);
+            key.DeleteValue(LegacyRunValueName, throwOnMissingValue: false);
         }
     }
 
     public static bool IsStartupEnabled()
     {
         using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: false);
-        return key?.GetValue(RunValueName) is string value && value.Contains(Application.ExecutablePath, StringComparison.OrdinalIgnoreCase);
+        return key?.GetValue(RunValueName) is string value && value.Contains(Application.ExecutablePath, StringComparison.OrdinalIgnoreCase)
+            || key?.GetValue(LegacyRunValueName) is string;
     }
 
     private static void Normalize(AppSettings settings)
@@ -96,7 +106,15 @@ internal static class SettingsService
 
         if (string.IsNullOrWhiteSpace(settings.DeviceName))
         {
-            settings.DeviceName = $"Carpeta DLNA - {Environment.MachineName}";
+            settings.DeviceName = $"VibeDLNA - {Environment.MachineName}";
+        }
+        else if (settings.DeviceName.StartsWith("Carpeta DLNA - ", StringComparison.OrdinalIgnoreCase))
+        {
+            settings.DeviceName = "VibeDLNA - " + settings.DeviceName["Carpeta DLNA - ".Length..];
+        }
+        else if (settings.DeviceName.StartsWith("Folder DLNA - ", StringComparison.OrdinalIgnoreCase))
+        {
+            settings.DeviceName = "VibeDLNA - " + settings.DeviceName["Folder DLNA - ".Length..];
         }
 
         if (!settings.ShareVideos && !settings.ShareAudio && !settings.ShareImages)

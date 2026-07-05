@@ -6,7 +6,7 @@ internal sealed class AppSettings
 
     public List<string> MediaFolders { get; set; } = new();
 
-    public string DeviceName { get; set; } = $"Carpeta DLNA - {Environment.MachineName}";
+    public string DeviceName { get; set; } = $"VibeDLNA - {Environment.MachineName}";
 
     public bool AutoStartServer { get; set; } = true;
 

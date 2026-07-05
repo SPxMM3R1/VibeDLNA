@@ -66,7 +66,7 @@ internal sealed class MainForm : Form
 
         AutoScaleMode = AutoScaleMode.Dpi;
         Font = new Font("Segoe UI", 9.5f);
-        Text = "Folder DLNA";
+        Text = "VibeDLNA";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(960, 620);
         Size = new Size(1180, 720);
@@ -85,7 +85,7 @@ internal sealed class MainForm : Form
         _notifyIcon = new NotifyIcon
         {
             Icon = _trayIcon,
-            Text = "Folder DLNA",
+            Text = "VibeDLNA",
             ContextMenuStrip = _trayMenu,
             Visible = true
         };
@@ -298,7 +298,7 @@ internal sealed class MainForm : Form
         status.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180));
         _root.Controls.Add(status, 0, 3);
 
-        ConfigureLabel(_footerLabel, "Folder DLNA", 9f, FontStyle.Regular, muted: true);
+        ConfigureLabel(_footerLabel, "VibeDLNA", 9f, FontStyle.Regular, muted: true);
         ConfigureLabel(_bottomAddressLabel, "Sin direccion activa", 9f, FontStyle.Regular, muted: true);
         ConfigureLabel(_bottomStateLabel, "DLNA detenido", 9f, FontStyle.Bold);
         _bottomAddressLabel.TextAlign = ContentAlignment.MiddleRight;
@@ -346,7 +346,7 @@ internal sealed class MainForm : Form
         titleStack.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         layout.Controls.Add(titleStack, 1, 0);
 
-        ConfigureLabel(_titleLabel, "Folder DLNA", 22f, FontStyle.Bold);
+        ConfigureLabel(_titleLabel, "VibeDLNA", 22f, FontStyle.Bold);
         _titleLabel.Dock = DockStyle.Fill;
         titleStack.Controls.Add(_titleLabel, 0, 0);
 
@@ -589,7 +589,7 @@ internal sealed class MainForm : Form
         };
         footer.Controls.Add(left, 0, 0);
 
-        ConfigureLabel(_footerLabel, "Servicio DLNA local", 9f, FontStyle.Regular, muted: true);
+        ConfigureLabel(_footerLabel, "VibeDLNA", 9f, FontStyle.Regular, muted: true);
         _footerLabel.Dock = DockStyle.Fill;
         _footerLabel.TextAlign = ContentAlignment.MiddleLeft;
         left.Controls.Add(_footerLabel);
@@ -743,7 +743,7 @@ internal sealed class MainForm : Form
         {
             MessageBox.Show(
                 "Selecciona al menos una carpeta valida antes de iniciar el servidor.",
-                "Folder DLNA",
+                "VibeDLNA",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
             return;
@@ -773,7 +773,7 @@ internal sealed class MainForm : Form
             _networkLabel.Text = "Visible para TVs y reproductores DLNA en esta red";
             _startStopButton.Text = "Detener";
             _trayStartStopItem.Text = "Detener servidor";
-            _notifyIcon.Text = "Folder DLNA - activo";
+            _notifyIcon.Text = "VibeDLNA - activo";
             _logoMark.Active = true;
             _logoMark.Invalidate();
             SetAppIcons(active: true);
@@ -797,7 +797,7 @@ internal sealed class MainForm : Form
             Log($"Error al iniciar: {ex.Message}");
             MessageBox.Show(
                 $"No se pudo iniciar el servidor:\n\n{ex.Message}",
-                "Folder DLNA",
+                "VibeDLNA",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
         }
@@ -829,7 +829,7 @@ internal sealed class MainForm : Form
                 : "Selecciona una carpeta para activar el servidor";
             _startStopButton.Text = "Iniciar";
             _trayStartStopItem.Text = "Iniciar servidor";
-            _notifyIcon.Text = "Folder DLNA";
+            _notifyIcon.Text = "VibeDLNA";
             _logoMark.Active = false;
             _logoMark.Invalidate();
             SetAppIcons(active: false);
