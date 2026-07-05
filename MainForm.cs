@@ -28,12 +28,7 @@ internal sealed class MainForm : Form
     private readonly LinkLabel _serverLink = new();
     private readonly Label _themeGlyphLabel = new();
     private readonly ToolTip _toolTip = new();
-    private readonly MenuStrip _optionsMenu = new();
-    private readonly ToolStripMenuItem _optionsRootItem = new("Opciones");
-    private readonly ToolStripMenuItem _menuAutoStartItem = new("Iniciar servidor al abrir");
-    private readonly ToolStripMenuItem _menuStartWithWindowsItem = new("Iniciar con Windows");
-    private readonly ToolStripMenuItem _menuStartMinimizedItem = new("Abrir minimizada");
-    private readonly ToolStripMenuItem _menuMinimizeToTrayItem = new("Cerrar a bandeja");
+    private readonly ModernButton _optionsButton = new();
     private readonly Label _startCommandLabel = new();
     private readonly Label _stopCommandLabel = new();
     private readonly Label _saveCommandLabel = new();
@@ -61,7 +56,6 @@ internal sealed class MainForm : Form
     private bool _isExiting;
     private bool _hasShown;
     private bool _isApplyingSettings;
-    private bool _isRefreshingOptions;
     private bool _startCommandAvailable = true;
     private bool _stopCommandAvailable;
     private bool _saveCommandAvailable = true;
@@ -135,7 +129,7 @@ internal sealed class MainForm : Form
         _root.ColumnCount = 1;
         _root.RowCount = 4;
         _root.Padding = new Padding(0);
-        _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+        _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
         _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
         _root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
@@ -149,26 +143,20 @@ internal sealed class MainForm : Form
 
     private void BuildOptionsMenu()
     {
-        _optionsMenu.Dock = DockStyle.Fill;
-        _optionsMenu.GripStyle = ToolStripGripStyle.Hidden;
-        _optionsMenu.Padding = new Padding(12, 3, 0, 0);
-        _optionsMenu.Items.Add(_optionsRootItem);
-
-        _optionsRootItem.DropDownItems.AddRange(new ToolStripItem[]
+        var host = new FlowLayoutPanel
         {
-            _menuAutoStartItem,
-            _menuStartWithWindowsItem,
-            _menuStartMinimizedItem,
-            new ToolStripSeparator(),
-            _menuMinimizeToTrayItem
-        });
-
-        _menuAutoStartItem.Click += (_, _) => ToggleOption(value => _settings.AutoStartServer = value, _settings.AutoStartServer, "Auto inicio");
-        _menuStartWithWindowsItem.Click += (_, _) => ToggleOption(value => _settings.StartWithWindows = value, _settings.StartWithWindows, "Inicio Windows");
-        _menuStartMinimizedItem.Click += (_, _) => ToggleOption(value => _settings.StartMinimized = value, _settings.StartMinimized, "Abrir minimizada");
-        _menuMinimizeToTrayItem.Click += (_, _) => ToggleOption(value => _settings.MinimizeToTray = value, _settings.MinimizeToTray, "Cerrar a bandeja");
-
-        _root.Controls.Add(_optionsMenu, 0, 0);
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            Padding = new Padding(12, 6, 0, 0)
+        };
+        _optionsButton.Text = "Opciones";
+        _optionsButton.Width = 118;
+        _optionsButton.Height = 34;
+        _optionsButton.Margin = new Padding(0);
+        _optionsButton.Click += (_, _) => OpenOptionsDialog();
+        host.Controls.Add(_optionsButton);
+        _root.Controls.Add(host, 0, 0);
     }
 
     private void BuildFlatToolbar()
@@ -677,7 +665,7 @@ internal sealed class MainForm : Form
     private void ApplySettingsToUi()
     {
         _isApplyingSettings = true;
-        _folderTextBox.Text = _settings.MediaFolder;
+        _folderTextBox.Text = GetFolderSummary();
         _deviceNameTextBox.Text = _settings.DeviceName;
         _autoStartServerSwitch.Checked = _settings.AutoStartServer;
         _startWithWindowsSwitch.Checked = _settings.StartWithWindows;
@@ -686,14 +674,12 @@ internal sealed class MainForm : Form
         _minimizeToTraySwitch.Checked = _settings.MinimizeToTray;
         SelectThemeMode(ParseThemeMode(_settings.ThemeMode));
         UpdateFolderState();
-        RefreshOptionsMenu();
         RefreshStatusView();
         _isApplyingSettings = false;
     }
 
     private void SaveSettingsFromUi(bool showConfirmation)
     {
-        _settings.MediaFolder = _folderTextBox.Text.Trim();
         _settings.DeviceName = _deviceNameTextBox.Text.Trim();
         _settings.AutoStartServer = _autoStartServerSwitch.Checked;
         _settings.StartWithWindows = _startWithWindowsSwitch.Checked;
@@ -702,7 +688,7 @@ internal sealed class MainForm : Form
         _settings.ThemeMode = _themeMode.ToString();
 
         SettingsService.Save(_settings);
-        RefreshOptionsMenu();
+        _folderTextBox.Text = GetFolderSummary();
         RefreshStatusView();
         if (showConfirmation)
         {
@@ -716,12 +702,14 @@ internal sealed class MainForm : Form
         {
             Description = "Selecciona la carpeta que quieres compartir por DLNA",
             UseDescriptionForTitle = true,
-            SelectedPath = Directory.Exists(_folderTextBox.Text) ? _folderTextBox.Text : Environment.GetFolderPath(Environment.SpecialFolder.MyVideos)
+            SelectedPath = Directory.Exists(_settings.MediaFolder) ? _settings.MediaFolder : Environment.GetFolderPath(Environment.SpecialFolder.MyVideos)
         };
 
         if (dialog.ShowDialog(this) == DialogResult.OK)
         {
-            _folderTextBox.Text = dialog.SelectedPath;
+            _settings.MediaFolders = new List<string> { dialog.SelectedPath };
+            _settings.MediaFolder = dialog.SelectedPath;
+            _folderTextBox.Text = GetFolderSummary();
             if (string.IsNullOrWhiteSpace(_deviceNameTextBox.Text))
             {
                 _deviceNameTextBox.Text = $"DLNA - {Path.GetFileName(dialog.SelectedPath)}";
@@ -750,10 +738,11 @@ internal sealed class MainForm : Form
     {
         SaveSettingsFromUi(showConfirmation: false);
 
-        if (!Directory.Exists(_settings.MediaFolder))
+        var validFolders = GetValidMediaFolders();
+        if (validFolders.Count == 0)
         {
             MessageBox.Show(
-                "Selecciona una carpeta valida antes de iniciar el servidor.",
+                "Selecciona al menos una carpeta valida antes de iniciar el servidor.",
                 "Folder DLNA",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
@@ -764,7 +753,16 @@ internal sealed class MainForm : Form
         try
         {
             _server?.Dispose();
-            _server = new DlnaServer(_settings.MediaFolder, _settings.DeviceName, _settings.Uuid, _settings.Port);
+            _server = new DlnaServer(
+                validFolders,
+                _settings.DeviceName,
+                _settings.Uuid,
+                _settings.Port,
+                _settings.ShareVideos,
+                _settings.ShareAudio,
+                _settings.ShareImages,
+                _settings.AutoRescanLibrary,
+                _settings.KeepAwake);
             _server.Message += (_, message) => BeginInvoke(() => Log(message));
             await _server.StartAsync();
 
@@ -852,7 +850,7 @@ internal sealed class MainForm : Form
         _saveButton.Enabled = !busy;
         _browseButton.Enabled = !busy;
         _folderTextBox.Enabled = !busy;
-        _optionsMenu.Enabled = !busy;
+        _optionsButton.Enabled = !busy;
         _saveCommandAvailable = !busy;
         _startCommandAvailable = !busy && _server is not { IsRunning: true };
         _stopCommandAvailable = !busy && _server is { IsRunning: true };
@@ -871,6 +869,44 @@ internal sealed class MainForm : Form
         Hide();
         _notifyIcon.Visible = true;
         Log("La app quedo en el area de notificacion.");
+    }
+
+    private void OpenOptionsDialog()
+    {
+        using var dialog = new OptionsDialog(_settings, _palette, RescanLibrary);
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+        {
+            return;
+        }
+
+        var wasRunning = _server is { IsRunning: true };
+        _settings = dialog.Settings;
+        SyncOptionSwitches();
+        ApplySettingsToUi();
+        SaveSettingsFromUi(showConfirmation: false);
+        Log("Opciones actualizadas.");
+
+        if (wasRunning)
+        {
+            BeginInvoke(async () =>
+            {
+                await StopServerAsync();
+                await StartServerAsync();
+            });
+        }
+    }
+
+    private void RescanLibrary()
+    {
+        if (_server is { IsRunning: true })
+        {
+            _server.Rescan();
+            Log("Reescaneo solicitado.");
+        }
+        else
+        {
+            Log("Reescaneo pendiente: inicia el servidor para anunciar la biblioteca.");
+        }
     }
 
     private async Task ExitApplicationAsync()
@@ -1025,7 +1061,7 @@ internal sealed class MainForm : Form
 
     private void UpdateFolderState()
     {
-        if (Directory.Exists(_folderTextBox.Text))
+        if (GetValidMediaFolders().Count > 0)
         {
             _folderStateLabel.Text = "Carpeta lista para compartir";
             _folderStateLabel.Tag = null;
@@ -1046,11 +1082,11 @@ internal sealed class MainForm : Form
     private void RefreshStatusView()
     {
         var running = _server is { IsRunning: true };
-        var folderExists = Directory.Exists(_settings.MediaFolder);
+        var validFolders = GetValidMediaFolders();
+        var folderExists = validFolders.Count > 0;
         _sidebarServerLabel.Text = running ? "Servidor activo (1)" : "Servidor detenido (0)";
-        _sidebarFolderLabel.Text = folderExists ? "Biblioteca lista (1)" : "Biblioteca pendiente (0)";
+        _sidebarFolderLabel.Text = folderExists ? $"Biblioteca lista ({validFolders.Count})" : "Biblioteca pendiente (0)";
         _sidebarWindowsLabel.Text = _settings.StartWithWindows ? "Inicio Win: si" : "Inicio Win: no";
-        RefreshOptionsMenu();
 
         _bottomStateLabel.Text = running ? "DLNA activo" : "DLNA detenido";
         _bottomAddressLabel.Text = running && _server is not null ? _server.DescriptionUrl : "Sin direccion activa";
@@ -1063,12 +1099,53 @@ internal sealed class MainForm : Form
 
         _statusGrid.Rows.Clear();
         _statusGrid.Rows.Add("Servidor DLNA", running ? "Activo" : "Detenido", running ? "Anunciando por UPnP en la red local" : "Listo para iniciar");
-        _statusGrid.Rows.Add("Biblioteca", folderExists ? "Lista" : "Pendiente", string.IsNullOrWhiteSpace(_settings.MediaFolder) ? "Sin carpeta seleccionada" : _settings.MediaFolder);
+        _statusGrid.Rows.Add("Biblioteca", folderExists ? "Lista" : "Pendiente", GetFolderSummary());
         _statusGrid.Rows.Add("Nombre visible", "Configurado", _settings.DeviceName);
         _statusGrid.Rows.Add("Direccion", running ? "Disponible" : "No disponible", running && _server is not null ? _server.DescriptionUrl : "Sin direccion activa");
+        _statusGrid.Rows.Add("Tipos", "Filtro", GetMediaFilterSummary());
+        _statusGrid.Rows.Add("Reescaneo", _settings.AutoRescanLibrary ? "Automatico" : "Manual", _settings.AutoRescanLibrary ? "Detecta cambios en carpetas" : "Usa Opciones > Reescanear");
+        _statusGrid.Rows.Add("Energia", _settings.KeepAwake ? "Activo" : "Normal", _settings.KeepAwake ? "Evita suspension con DLNA activo" : "Windows decide suspension");
         _statusGrid.Rows.Add("Inicio con Windows", _settings.StartWithWindows ? "Activado" : "Desactivado", _settings.StartMinimized ? "Abrira minimizada" : "Abrira visible");
         _statusGrid.Rows.Add("Bandeja", _settings.MinimizeToTray ? "Activada" : "Desactivada", _settings.MinimizeToTray ? "Cerrar envia al area de notificacion" : "Cerrar sale de la app");
         RefreshCommandState();
+    }
+
+    private List<string> GetValidMediaFolders() =>
+        _settings.MediaFolders
+            .Where(Directory.Exists)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private string GetFolderSummary()
+    {
+        var folders = GetValidMediaFolders();
+        return folders.Count switch
+        {
+            0 => "Sin carpeta seleccionada",
+            1 => folders[0],
+            _ => $"{folders.Count} carpetas compartidas"
+        };
+    }
+
+    private string GetMediaFilterSummary()
+    {
+        var enabled = new List<string>();
+        if (_settings.ShareVideos)
+        {
+            enabled.Add("videos");
+        }
+
+        if (_settings.ShareAudio)
+        {
+            enabled.Add("audio");
+        }
+
+        if (_settings.ShareImages)
+        {
+            enabled.Add("fotos");
+        }
+
+        return string.Join(", ", enabled);
     }
 
     private void RefreshCommandState()
@@ -1209,36 +1286,6 @@ internal sealed class MainForm : Form
         return false;
     }
 
-    private void RefreshOptionsMenu()
-    {
-        if (_optionsMenu.IsDisposed)
-        {
-            return;
-        }
-
-        _isRefreshingOptions = true;
-        _menuAutoStartItem.Checked = _settings.AutoStartServer;
-        _menuStartWithWindowsItem.Checked = _settings.StartWithWindows;
-        _menuStartMinimizedItem.Checked = _settings.StartMinimized;
-        _menuStartMinimizedItem.Enabled = _settings.StartWithWindows;
-        _menuMinimizeToTrayItem.Checked = _settings.MinimizeToTray;
-        _isRefreshingOptions = false;
-    }
-
-    private void ToggleOption(Action<bool> assign, bool currentValue, string label)
-    {
-        if (_isRefreshingOptions)
-        {
-            return;
-        }
-
-        var nextValue = !currentValue;
-        assign(nextValue);
-        SyncOptionSwitches();
-        SaveSettingsFromUi(showConfirmation: false);
-        Log($"Opciones: {label}: {YesNo(nextValue)}");
-    }
-
     private void SyncOptionSwitches()
     {
         _autoStartServerSwitch.Checked = _settings.AutoStartServer;
@@ -1247,8 +1294,6 @@ internal sealed class MainForm : Form
         _startMinimizedSwitch.Enabled = _settings.StartWithWindows;
         _minimizeToTraySwitch.Checked = _settings.MinimizeToTray;
     }
-
-    private static string YesNo(bool value) => value ? "si" : "no";
 
     private void ConfigureToolbarButton(FlatIconButton button, FlatIconKind kind, string tooltip, Action action, bool accent = false)
     {

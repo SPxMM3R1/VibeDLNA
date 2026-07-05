@@ -7,25 +7,46 @@ namespace FolderDlnaServer;
 
 internal sealed class DlnaServer : IDisposable
 {
-    private readonly string _mediaFolder;
+    private readonly List<string> _mediaFolders;
     private readonly string _friendlyName;
     private readonly string _uuid;
     private readonly int _requestedPort;
+    private readonly bool _shareVideos;
+    private readonly bool _shareAudio;
+    private readonly bool _shareImages;
+    private readonly bool _autoRescan;
+    private readonly bool _keepAwake;
     private DlnaContentLibrary? _library;
     private TcpListener? _listener;
     private CancellationTokenSource? _cancellation;
     private Task? _acceptLoopTask;
     private SsdpServer? _ssdpServer;
+    private readonly List<FileSystemWatcher> _watchers = new();
     private IPAddress _localAddress = IPAddress.Loopback;
+    private int _systemUpdateId = 1;
 
     public event EventHandler<string>? Message;
 
-    public DlnaServer(string mediaFolder, string friendlyName, string uuid, int requestedPort)
+    public DlnaServer(
+        IEnumerable<string> mediaFolders,
+        string friendlyName,
+        string uuid,
+        int requestedPort,
+        bool shareVideos,
+        bool shareAudio,
+        bool shareImages,
+        bool autoRescan,
+        bool keepAwake)
     {
-        _mediaFolder = mediaFolder;
+        _mediaFolders = mediaFolders.Where(Directory.Exists).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         _friendlyName = friendlyName;
         _uuid = uuid;
         _requestedPort = requestedPort;
+        _shareVideos = shareVideos;
+        _shareAudio = shareAudio;
+        _shareImages = shareImages;
+        _autoRescan = autoRescan;
+        _keepAwake = keepAwake;
     }
 
     public bool IsRunning => _listener is not null;
@@ -44,11 +65,13 @@ internal sealed class DlnaServer : IDisposable
         }
 
         _localAddress = NetworkHelper.GetLocalIPv4Address();
-        _library = new DlnaContentLibrary(_mediaFolder);
+        _library = new DlnaContentLibrary(_mediaFolders, _shareVideos, _shareAudio, _shareImages);
         _cancellation = new CancellationTokenSource();
         _listener = new TcpListener(IPAddress.Any, _requestedPort);
         _listener.Start();
         Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
+        PowerKeepAwake.SetEnabled(_keepAwake);
+        StartWatchers();
 
         _acceptLoopTask = Task.Run(() => AcceptLoopAsync(_cancellation.Token));
 
@@ -78,6 +101,8 @@ internal sealed class DlnaServer : IDisposable
             _ssdpServer = null;
         }
 
+        StopWatchers();
+        PowerKeepAwake.SetEnabled(false);
         _cancellation?.Cancel();
         _listener?.Stop();
 
@@ -105,8 +130,16 @@ internal sealed class DlnaServer : IDisposable
     {
         _cancellation?.Cancel();
         _listener?.Stop();
+        StopWatchers();
+        PowerKeepAwake.SetEnabled(false);
         _ssdpServer?.Dispose();
         _cancellation?.Dispose();
+    }
+
+    public void Rescan()
+    {
+        Interlocked.Increment(ref _systemUpdateId);
+        Message?.Invoke(this, "Biblioteca DLNA actualizada.");
     }
 
     private async Task AcceptLoopAsync(CancellationToken cancellationToken)
@@ -260,11 +293,11 @@ internal sealed class DlnaServer : IDisposable
                     new XElement("Result", didl),
                     new XElement("NumberReturned", pagedEntries.Length),
                     new XElement("TotalMatches", totalMatches),
-                    new XElement("UpdateID", 1));
+                    new XElement("UpdateID", _systemUpdateId));
             }
             else if (action == "GetSystemUpdateID")
             {
-                response = DlnaXml.SoapResponse(DlnaXml.ContentDirectoryServiceType, "GetSystemUpdateID", new XElement("Id", 1));
+                response = DlnaXml.SoapResponse(DlnaXml.ContentDirectoryServiceType, "GetSystemUpdateID", new XElement("Id", _systemUpdateId));
             }
             else if (action == "GetSearchCapabilities")
             {
@@ -298,7 +331,7 @@ internal sealed class DlnaServer : IDisposable
             response = DlnaXml.SoapResponse(
                 DlnaXml.ConnectionManagerServiceType,
                 "GetProtocolInfo",
-                new XElement("Source", MediaTypes.GetSourceProtocolInfo()),
+                new XElement("Source", MediaTypes.GetSourceProtocolInfo(_shareVideos, _shareAudio, _shareImages)),
                 new XElement("Sink", string.Empty));
         }
         else if (action == "GetCurrentConnectionIDs")
@@ -505,7 +538,7 @@ internal sealed class DlnaServer : IDisposable
     private string BuildLandingPage()
     {
         var escapedName = WebUtility.HtmlEncode(_friendlyName);
-        var escapedFolder = WebUtility.HtmlEncode(_mediaFolder);
+        var escapedFolder = WebUtility.HtmlEncode(string.Join(", ", _mediaFolders));
         return $$"""
             <!doctype html>
             <html lang="es">
@@ -525,6 +558,46 @@ internal sealed class DlnaServer : IDisposable
             </body>
             </html>
             """;
+    }
+
+    private void StartWatchers()
+    {
+        if (!_autoRescan)
+        {
+            return;
+        }
+
+        foreach (var folder in _mediaFolders)
+        {
+            try
+            {
+                var watcher = new FileSystemWatcher(folder)
+                {
+                    IncludeSubdirectories = true,
+                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.Size,
+                    EnableRaisingEvents = true
+                };
+                watcher.Created += (_, _) => Rescan();
+                watcher.Deleted += (_, _) => Rescan();
+                watcher.Renamed += (_, _) => Rescan();
+                watcher.Changed += (_, _) => Rescan();
+                _watchers.Add(watcher);
+            }
+            catch (Exception ex)
+            {
+                Message?.Invoke(this, $"No se pudo vigilar {folder}: {ex.Message}");
+            }
+        }
+    }
+
+    private void StopWatchers()
+    {
+        foreach (var watcher in _watchers)
+        {
+            watcher.Dispose();
+        }
+
+        _watchers.Clear();
     }
 
     private static Uri CreateUri(string target)

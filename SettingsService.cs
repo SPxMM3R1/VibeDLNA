@@ -79,9 +79,29 @@ internal static class SettingsService
 
     private static void Normalize(AppSettings settings)
     {
+        settings.MediaFolders ??= new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(settings.MediaFolder)
+            && !settings.MediaFolders.Any(folder => string.Equals(folder, settings.MediaFolder, StringComparison.OrdinalIgnoreCase)))
+        {
+            settings.MediaFolders.Insert(0, settings.MediaFolder);
+        }
+
+        settings.MediaFolders = settings.MediaFolders
+            .Where(folder => !string.IsNullOrWhiteSpace(folder))
+            .Select(folder => folder.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        settings.MediaFolder = settings.MediaFolders.FirstOrDefault() ?? string.Empty;
+
         if (string.IsNullOrWhiteSpace(settings.DeviceName))
         {
             settings.DeviceName = $"Carpeta DLNA - {Environment.MachineName}";
+        }
+
+        if (!settings.ShareVideos && !settings.ShareAudio && !settings.ShareImages)
+        {
+            settings.ShareVideos = true;
         }
 
         if (!Guid.TryParse(settings.Uuid, out _))
