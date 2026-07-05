@@ -26,12 +26,17 @@ internal sealed class MainForm : Form
     private readonly TextBox _deviceNameTextBox = new();
     private readonly TextBox _logTextBox = new();
     private readonly LinkLabel _serverLink = new();
-    private readonly ThemeIconButton _themeButton = new();
+    private readonly Label _themeGlyphLabel = new();
     private readonly ToolTip _toolTip = new();
-    private readonly FlatIconButton _toolbarStartButton = new();
-    private readonly FlatIconButton _toolbarStopButton = new();
-    private readonly FlatIconButton _toolbarSaveButton = new();
-    private readonly ComboBox _toolsComboBox = new();
+    private readonly MenuStrip _optionsMenu = new();
+    private readonly ToolStripMenuItem _optionsRootItem = new("Opciones");
+    private readonly ToolStripMenuItem _menuAutoStartItem = new("Iniciar servidor al abrir");
+    private readonly ToolStripMenuItem _menuStartWithWindowsItem = new("Iniciar con Windows");
+    private readonly ToolStripMenuItem _menuStartMinimizedItem = new("Abrir minimizada");
+    private readonly ToolStripMenuItem _menuMinimizeToTrayItem = new("Cerrar a bandeja");
+    private readonly Label _startCommandLabel = new();
+    private readonly Label _stopCommandLabel = new();
+    private readonly Label _saveCommandLabel = new();
     private readonly DataGridView _statusGrid = new();
     private readonly DataGridView _logGrid = new();
     private readonly Label _sidebarServerLabel = new();
@@ -56,7 +61,10 @@ internal sealed class MainForm : Form
     private bool _isExiting;
     private bool _hasShown;
     private bool _isApplyingSettings;
-    private bool _isRefreshingTools;
+    private bool _isRefreshingOptions;
+    private bool _startCommandAvailable = true;
+    private bool _stopCommandAvailable;
+    private bool _saveCommandAvailable = true;
 
     public MainForm(bool requestedStartMinimized)
     {
@@ -125,16 +133,42 @@ internal sealed class MainForm : Form
     {
         _root.Dock = DockStyle.Fill;
         _root.ColumnCount = 1;
-        _root.RowCount = 3;
+        _root.RowCount = 4;
         _root.Padding = new Padding(0);
+        _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
         _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
         _root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
         Controls.Add(_root);
 
+        BuildOptionsMenu();
         BuildFlatToolbar();
         BuildFlatWorkspace();
         BuildFlatStatusBar();
+    }
+
+    private void BuildOptionsMenu()
+    {
+        _optionsMenu.Dock = DockStyle.Fill;
+        _optionsMenu.GripStyle = ToolStripGripStyle.Hidden;
+        _optionsMenu.Padding = new Padding(12, 3, 0, 0);
+        _optionsMenu.Items.Add(_optionsRootItem);
+
+        _optionsRootItem.DropDownItems.AddRange(new ToolStripItem[]
+        {
+            _menuAutoStartItem,
+            _menuStartWithWindowsItem,
+            _menuStartMinimizedItem,
+            new ToolStripSeparator(),
+            _menuMinimizeToTrayItem
+        });
+
+        _menuAutoStartItem.Click += (_, _) => ToggleOption(value => _settings.AutoStartServer = value, _settings.AutoStartServer, "Auto inicio");
+        _menuStartWithWindowsItem.Click += (_, _) => ToggleOption(value => _settings.StartWithWindows = value, _settings.StartWithWindows, "Inicio Windows");
+        _menuStartMinimizedItem.Click += (_, _) => ToggleOption(value => _settings.StartMinimized = value, _settings.StartMinimized, "Abrir minimizada");
+        _menuMinimizeToTrayItem.Click += (_, _) => ToggleOption(value => _settings.MinimizeToTray = value, _settings.MinimizeToTray, "Cerrar a bandeja");
+
+        _root.Controls.Add(_optionsMenu, 0, 0);
     }
 
     private void BuildFlatToolbar()
@@ -145,10 +179,10 @@ internal sealed class MainForm : Form
             ColumnCount = 3,
             Padding = new Padding(12, 8, 12, 8)
         };
-        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 148));
+        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 158));
         toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 560));
-        _root.Controls.Add(toolbar, 0, 0);
+        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 410));
+        _root.Controls.Add(toolbar, 0, 1);
 
         var left = new FlowLayoutPanel
         {
@@ -158,10 +192,10 @@ internal sealed class MainForm : Form
         };
         toolbar.Controls.Add(left, 0, 0);
 
-        ConfigureToolbarButton(_toolbarStartButton, FlatIconKind.Play, "Iniciar servidor", async () => await StartServerAsync(), accent: true);
-        ConfigureToolbarButton(_toolbarStopButton, FlatIconKind.Stop, "Detener servidor", async () => await StopServerAsync());
-        ConfigureToolbarButton(_toolbarSaveButton, FlatIconKind.Save, "Guardar opciones", () => SaveSettingsFromUi(showConfirmation: true));
-        left.Controls.AddRange(new Control[] { _toolbarStartButton, _toolbarStopButton, _toolbarSaveButton });
+        ConfigureCommandLabel(_startCommandLabel, "▶", "Iniciar servidor", async () => await StartServerAsync());
+        ConfigureCommandLabel(_stopCommandLabel, "■", "Detener servidor", async () => await StopServerAsync());
+        ConfigureCommandLabel(_saveCommandLabel, "✓", "Guardar opciones", () => SaveSettingsFromUi(showConfirmation: true));
+        left.Controls.AddRange(new Control[] { _startCommandLabel, _stopCommandLabel, _saveCommandLabel });
 
         ConfigureTextBox(_folderTextBox);
         _folderTextBox.ReadOnly = true;
@@ -176,27 +210,20 @@ internal sealed class MainForm : Form
         var right = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 5,
+            ColumnCount = 3,
             RowCount = 1
         };
-        right.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 190));
-        right.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 12));
         right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         right.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 12));
         right.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 50));
         toolbar.Controls.Add(right, 2, 0);
 
-        ConfigureToolsDropDown();
-        right.Controls.Add(_toolsComboBox, 0, 0);
-
         ConfigureTextBox(_deviceNameTextBox);
         _deviceNameTextBox.Margin = new Padding(0, 4, 0, 4);
-        right.Controls.Add(_deviceNameTextBox, 2, 0);
+        right.Controls.Add(_deviceNameTextBox, 0, 0);
 
-        _themeButton.Margin = new Padding(4, 4, 0, 4);
-        _themeButton.Click += (_, _) => ToggleTheme();
-        _toolTip.SetToolTip(_themeButton, "Cambiar tema");
-        right.Controls.Add(_themeButton, 4, 0);
+        ConfigureThemeGlyph();
+        right.Controls.Add(_themeGlyphLabel, 2, 0);
     }
 
     private void BuildFlatWorkspace()
@@ -209,7 +236,7 @@ internal sealed class MainForm : Form
             SplitterDistance = 190,
             BackColor = AppPalette.Dark.Border
         };
-        _root.Controls.Add(split, 0, 1);
+        _root.Controls.Add(split, 0, 2);
 
         BuildFlatSidebar(split.Panel1);
         BuildFlatMain(split.Panel2);
@@ -281,7 +308,7 @@ internal sealed class MainForm : Form
         status.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         status.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 360));
         status.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180));
-        _root.Controls.Add(status, 0, 2);
+        _root.Controls.Add(status, 0, 3);
 
         ConfigureLabel(_footerLabel, "Folder DLNA", 9f, FontStyle.Regular, muted: true);
         ConfigureLabel(_bottomAddressLabel, "Sin direccion activa", 9f, FontStyle.Regular, muted: true);
@@ -370,10 +397,8 @@ internal sealed class MainForm : Form
         };
         rightStack.Controls.Add(themeRow, 0, 1);
 
-        _themeButton.Margin = new Padding(0, 0, 0, 0);
-        _themeButton.Click += (_, _) => ToggleTheme();
-        _toolTip.SetToolTip(_themeButton, "Cambiar tema");
-        themeRow.Controls.Add(_themeButton);
+        ConfigureThemeGlyph();
+        themeRow.Controls.Add(_themeGlyphLabel);
 
         _serverLink.Text = "Sin direccion activa";
         _serverLink.AutoSize = false;
@@ -661,7 +686,7 @@ internal sealed class MainForm : Form
         _minimizeToTraySwitch.Checked = _settings.MinimizeToTray;
         SelectThemeMode(ParseThemeMode(_settings.ThemeMode));
         UpdateFolderState();
-        RefreshToolsDropDown();
+        RefreshOptionsMenu();
         RefreshStatusView();
         _isApplyingSettings = false;
     }
@@ -677,7 +702,7 @@ internal sealed class MainForm : Form
         _settings.ThemeMode = _themeMode.ToString();
 
         SettingsService.Save(_settings);
-        RefreshToolsDropDown();
+        RefreshOptionsMenu();
         RefreshStatusView();
         if (showConfirmation)
         {
@@ -827,10 +852,11 @@ internal sealed class MainForm : Form
         _saveButton.Enabled = !busy;
         _browseButton.Enabled = !busy;
         _folderTextBox.Enabled = !busy;
-        _toolsComboBox.Enabled = !busy;
-        _toolbarSaveButton.Enabled = !busy;
-        _toolbarStartButton.Enabled = !busy && _server is not { IsRunning: true };
-        _toolbarStopButton.Enabled = !busy && _server is { IsRunning: true };
+        _optionsMenu.Enabled = !busy;
+        _saveCommandAvailable = !busy;
+        _startCommandAvailable = !busy && _server is not { IsRunning: true };
+        _stopCommandAvailable = !busy && _server is { IsRunning: true };
+        RefreshCommandColors();
     }
 
     private void ShowFromTray()
@@ -902,8 +928,7 @@ internal sealed class MainForm : Form
         NativeTheme.ApplyWindowEffects(this, _palette.IsDark);
         ApplyPaletteRecursive(this);
         ApplyTrayTheme();
-        _themeButton.IsDarkTheme = _palette.IsDark;
-        _toolTip.SetToolTip(_themeButton, _palette.IsDark ? "Cambiar a modo claro" : "Cambiar a modo oscuro");
+        RefreshThemeGlyph();
         RefreshStatusView();
     }
 
@@ -926,25 +951,13 @@ internal sealed class MainForm : Form
             textBox.BackColor = _palette.Elevated;
             textBox.ForeColor = _palette.Text;
         }
-        else if (control is ComboBox comboBox)
-        {
-            comboBox.BackColor = _palette.Elevated;
-            comboBox.ForeColor = _palette.Text;
-            comboBox.FlatStyle = FlatStyle.Flat;
-        }
         else if (control is DataGridView grid)
         {
             ApplyGridPalette(grid);
         }
         else if (control is MenuStrip menu)
         {
-            menu.BackColor = _palette.Window;
-            menu.ForeColor = _palette.Text;
-            foreach (ToolStripItem item in menu.Items)
-            {
-                item.BackColor = _palette.Window;
-                item.ForeColor = _palette.Text;
-            }
+            ApplyMenuPalette(menu);
         }
         else if (control is Label label)
         {
@@ -979,6 +992,37 @@ internal sealed class MainForm : Form
         }
     }
 
+    private void ApplyMenuPalette(MenuStrip menu)
+    {
+        menu.BackColor = _palette.Window;
+        menu.ForeColor = _palette.Text;
+        menu.RenderMode = ToolStripRenderMode.Professional;
+        menu.Renderer = new ToolStripProfessionalRenderer(new AppMenuColorTable(_palette));
+
+        foreach (ToolStripItem item in menu.Items)
+        {
+            ApplyToolStripItemPalette(item);
+        }
+    }
+
+    private void ApplyToolStripItemPalette(ToolStripItem item)
+    {
+        item.BackColor = _palette.Window;
+        item.ForeColor = _palette.Text;
+
+        if (item is ToolStripMenuItem menuItem)
+        {
+            menuItem.DropDown.BackColor = _palette.Surface;
+            menuItem.DropDown.ForeColor = _palette.Text;
+            foreach (ToolStripItem child in menuItem.DropDownItems)
+            {
+                child.BackColor = _palette.Surface;
+                child.ForeColor = _palette.Text;
+                ApplyToolStripItemPalette(child);
+            }
+        }
+    }
+
     private void UpdateFolderState()
     {
         if (Directory.Exists(_folderTextBox.Text))
@@ -1006,7 +1050,7 @@ internal sealed class MainForm : Form
         _sidebarServerLabel.Text = running ? "Servidor activo (1)" : "Servidor detenido (0)";
         _sidebarFolderLabel.Text = folderExists ? "Biblioteca lista (1)" : "Biblioteca pendiente (0)";
         _sidebarWindowsLabel.Text = _settings.StartWithWindows ? "Inicio Win: si" : "Inicio Win: no";
-        RefreshToolsDropDown();
+        RefreshOptionsMenu();
 
         _bottomStateLabel.Text = running ? "DLNA activo" : "DLNA detenido";
         _bottomAddressLabel.Text = running && _server is not null ? _server.DescriptionUrl : "Sin direccion activa";
@@ -1030,8 +1074,20 @@ internal sealed class MainForm : Form
     private void RefreshCommandState()
     {
         var running = _server is { IsRunning: true };
-        _toolbarStartButton.Enabled = !running;
-        _toolbarStopButton.Enabled = running;
+        _startCommandAvailable = !running;
+        _stopCommandAvailable = running;
+        _saveCommandAvailable = true;
+        RefreshCommandColors();
+    }
+
+    private void RefreshCommandColors()
+    {
+        _startCommandLabel.ForeColor = _startCommandAvailable ? _palette.Success : _palette.MutedText;
+        _stopCommandLabel.ForeColor = _stopCommandAvailable ? _palette.Danger : _palette.MutedText;
+        _saveCommandLabel.ForeColor = _saveCommandAvailable ? _palette.Text : _palette.MutedText;
+        _startCommandLabel.Cursor = _startCommandAvailable ? Cursors.Hand : Cursors.Default;
+        _stopCommandLabel.Cursor = _stopCommandAvailable ? Cursors.Hand : Cursors.Default;
+        _saveCommandLabel.Cursor = _saveCommandAvailable ? Cursors.Hand : Cursors.Default;
     }
 
     private void SetAppIcons(bool active)
@@ -1061,11 +1117,11 @@ internal sealed class MainForm : Form
 
         if (mode == AppThemeMode.System)
         {
-            _themeButton.IsDarkTheme = SystemTheme.Resolve(AppThemeMode.System).IsDark;
+            RefreshThemeGlyph(SystemTheme.Resolve(AppThemeMode.System).IsDark);
             return;
         }
 
-        _themeButton.IsDarkTheme = mode == AppThemeMode.Dark;
+        RefreshThemeGlyph(mode == AppThemeMode.Dark);
     }
 
     private AppThemeMode GetSelectedThemeMode() =>
@@ -1081,70 +1137,106 @@ internal sealed class MainForm : Form
         textBox.Font = new Font("Segoe UI", 10f);
     }
 
-    private void ConfigureToolsDropDown()
+    private void ConfigureCommandLabel(Label label, string text, string tooltip, Action action)
     {
-        _toolsComboBox.Dock = DockStyle.Fill;
-        _toolsComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
-        _toolsComboBox.FlatStyle = FlatStyle.Flat;
-        _toolsComboBox.Font = new Font("Segoe UI", 9.5f);
-        _toolsComboBox.Margin = new Padding(0, 4, 0, 4);
-        _toolsComboBox.SelectedIndexChanged += (_, _) => ApplySelectedToolOption();
-        _toolTip.SetToolTip(_toolsComboBox, "Herramientas y comportamiento de inicio");
-        RefreshToolsDropDown();
-    }
-
-    private void RefreshToolsDropDown()
-    {
-        if (_toolsComboBox.IsDisposed)
+        label.Text = text;
+        label.AutoSize = false;
+        label.Size = new Size(38, 42);
+        label.Margin = new Padding(0, 0, 8, 0);
+        label.BackColor = Color.Transparent;
+        label.TextAlign = ContentAlignment.MiddleCenter;
+        label.Font = new Font("Segoe UI Symbol", 20f, FontStyle.Regular);
+        label.Cursor = Cursors.Hand;
+        label.Click += (_, _) =>
         {
-            return;
-        }
-
-        _isRefreshingTools = true;
-        _toolsComboBox.BeginUpdate();
-        _toolsComboBox.Items.Clear();
-        _toolsComboBox.Items.Add("Herramientas");
-        _toolsComboBox.Items.Add($"Auto inicio: {YesNo(_settings.AutoStartServer)}");
-        _toolsComboBox.Items.Add($"Inicio Windows: {YesNo(_settings.StartWithWindows)}");
-        _toolsComboBox.Items.Add($"Abrir minimizada: {YesNo(_settings.StartMinimized)}");
-        _toolsComboBox.Items.Add($"Cerrar a bandeja: {YesNo(_settings.MinimizeToTray)}");
-        _toolsComboBox.EndUpdate();
-        _toolsComboBox.SelectedIndex = 0;
-        _isRefreshingTools = false;
-    }
-
-    private void ApplySelectedToolOption()
-    {
-        if (_isRefreshingTools || _toolsComboBox.SelectedIndex <= 0)
-        {
-            return;
-        }
-
-        var changed = _toolsComboBox.SelectedIndex switch
-        {
-            1 => ToggleOption(value => _settings.AutoStartServer = value, _settings.AutoStartServer, "Auto inicio"),
-            2 => ToggleOption(value => _settings.StartWithWindows = value, _settings.StartWithWindows, "Inicio Windows"),
-            3 => ToggleOption(value => _settings.StartMinimized = value, _settings.StartMinimized, "Abrir minimizada"),
-            4 => ToggleOption(value => _settings.MinimizeToTray = value, _settings.MinimizeToTray, "Cerrar a bandeja"),
-            _ => string.Empty
+            if (IsCommandAvailable(label))
+            {
+                action();
+            }
         };
+        _toolTip.SetToolTip(label, tooltip);
+    }
 
-        if (string.IsNullOrWhiteSpace(changed))
+    private void ConfigureCommandLabel(Label label, string text, string tooltip, Func<Task> action)
+    {
+        ConfigureCommandLabel(label, text, tooltip, () =>
         {
-            RefreshToolsDropDown();
+            _ = action();
+        });
+    }
+
+    private void ConfigureThemeGlyph()
+    {
+        _themeGlyphLabel.Text = "☾";
+        _themeGlyphLabel.AutoSize = false;
+        _themeGlyphLabel.Size = new Size(46, 42);
+        _themeGlyphLabel.Margin = new Padding(4, 0, 0, 0);
+        _themeGlyphLabel.BackColor = Color.Transparent;
+        _themeGlyphLabel.TextAlign = ContentAlignment.MiddleCenter;
+        _themeGlyphLabel.Font = new Font("Segoe UI Symbol", 20f, FontStyle.Regular);
+        _themeGlyphLabel.Cursor = Cursors.Hand;
+        _themeGlyphLabel.Click += (_, _) => ToggleTheme();
+        RefreshThemeGlyph();
+    }
+
+    private void RefreshThemeGlyph(bool? darkOverride = null)
+    {
+        var isDark = darkOverride ?? _palette.IsDark;
+        _themeGlyphLabel.Text = isDark ? "☾" : "☀";
+        _themeGlyphLabel.ForeColor = isDark
+            ? Color.FromArgb(218, 232, 255)
+            : Color.FromArgb(255, 184, 76);
+        _toolTip.SetToolTip(_themeGlyphLabel, isDark ? "Cambiar a modo claro" : "Cambiar a modo oscuro");
+    }
+
+    private bool IsCommandAvailable(Label label)
+    {
+        if (ReferenceEquals(label, _startCommandLabel))
+        {
+            return _startCommandAvailable;
+        }
+
+        if (ReferenceEquals(label, _stopCommandLabel))
+        {
+            return _stopCommandAvailable;
+        }
+
+        if (ReferenceEquals(label, _saveCommandLabel))
+        {
+            return _saveCommandAvailable;
+        }
+
+        return false;
+    }
+
+    private void RefreshOptionsMenu()
+    {
+        if (_optionsMenu.IsDisposed)
+        {
             return;
         }
 
-        SyncOptionSwitches();
-        SaveSettingsFromUi(showConfirmation: false);
-        Log($"Herramientas: {changed}");
+        _isRefreshingOptions = true;
+        _menuAutoStartItem.Checked = _settings.AutoStartServer;
+        _menuStartWithWindowsItem.Checked = _settings.StartWithWindows;
+        _menuStartMinimizedItem.Checked = _settings.StartMinimized;
+        _menuStartMinimizedItem.Enabled = _settings.StartWithWindows;
+        _menuMinimizeToTrayItem.Checked = _settings.MinimizeToTray;
+        _isRefreshingOptions = false;
     }
 
-    private string ToggleOption(Action<bool> assign, bool currentValue, string label)
+    private void ToggleOption(Action<bool> assign, bool currentValue, string label)
     {
+        if (_isRefreshingOptions)
+        {
+            return;
+        }
+
         var nextValue = !currentValue;
         assign(nextValue);
-        return $"{label}: {YesNo(nextValue)}";
+        SyncOptionSwitches();
+        SaveSettingsFromUi(showConfirmation: false);
+        Log($"Opciones: {label}: {YesNo(nextValue)}");
     }
 
     private void SyncOptionSwitches()
@@ -1252,5 +1344,34 @@ internal sealed class MainForm : Form
         label.Font = new Font("Segoe UI", size, style);
         label.TextAlign = ContentAlignment.MiddleLeft;
         label.Tag = muted ? "muted" : null;
+    }
+
+    private sealed class AppMenuColorTable : ProfessionalColorTable
+    {
+        private readonly AppPalette _palette;
+
+        public AppMenuColorTable(AppPalette palette)
+        {
+            _palette = palette;
+            UseSystemColors = false;
+        }
+
+        public override Color MenuStripGradientBegin => _palette.Window;
+        public override Color MenuStripGradientEnd => _palette.Window;
+        public override Color ToolStripDropDownBackground => _palette.Surface;
+        public override Color ImageMarginGradientBegin => _palette.Surface;
+        public override Color ImageMarginGradientMiddle => _palette.Surface;
+        public override Color ImageMarginGradientEnd => _palette.Surface;
+        public override Color MenuItemSelected => _palette.Elevated;
+        public override Color MenuItemSelectedGradientBegin => _palette.Elevated;
+        public override Color MenuItemSelectedGradientEnd => _palette.Elevated;
+        public override Color MenuItemPressedGradientBegin => _palette.SurfaceAlt;
+        public override Color MenuItemPressedGradientEnd => _palette.SurfaceAlt;
+        public override Color MenuItemBorder => _palette.Border;
+        public override Color SeparatorDark => _palette.Border;
+        public override Color SeparatorLight => _palette.Border;
+        public override Color CheckBackground => _palette.SurfaceAlt;
+        public override Color CheckSelectedBackground => _palette.Elevated;
+        public override Color CheckPressedBackground => _palette.Elevated;
     }
 }

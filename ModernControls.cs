@@ -88,7 +88,6 @@ internal sealed class ThemeIconButton : Control, IThemeAware
     private AppPalette _palette = AppPalette.Dark;
     private bool _hovered;
     private bool _pressed;
-    private Color _buttonFill;
 
     public ThemeIconButton()
     {
@@ -173,16 +172,12 @@ internal sealed class ThemeIconButton : Control, IThemeAware
         var bounds = ClientRectangle;
         bounds.Inflate(-1, -1);
 
-        _buttonFill = ThemePaint.ResolveBackColor(this, _palette);
-        if (_pressed)
+        if (_hovered || _pressed)
         {
-            _buttonFill = Blend(_buttonFill, _palette.Elevated, 0.35f);
+            var center = new PointF(bounds.Left + bounds.Width / 2f, bounds.Top + bounds.Height / 2f);
+            using var hoverBrush = new SolidBrush(Color.FromArgb(_pressed ? 58 : 38, _palette.AccentAlt));
+            e.Graphics.FillEllipse(hoverBrush, center.X - 17, center.Y - 17, 34, 34);
         }
-
-        using var hoverBrush = new SolidBrush(_hovered || _pressed ? Blend(_palette.Elevated, _palette.Accent, _palette.IsDark ? 0.08f : 0.05f) : _buttonFill);
-        using var border = new Pen(_hovered ? _palette.Accent : Color.FromArgb(_palette.IsDark ? 72 : 96, _palette.Border));
-        e.Graphics.FillRectangle(hoverBrush, bounds);
-        e.Graphics.DrawRectangle(border, bounds);
 
         if (IsDarkTheme)
         {
