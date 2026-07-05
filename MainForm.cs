@@ -21,13 +21,13 @@ internal sealed class MainForm : Form
     private readonly Label _networkLabel = new();
     private readonly Label _folderStateLabel = new();
     private readonly Label _deviceStateLabel = new();
-    private readonly Label _addressCaptionLabel = new();
     private readonly Label _footerLabel = new();
     private readonly TextBox _folderTextBox = new();
     private readonly TextBox _deviceNameTextBox = new();
     private readonly TextBox _logTextBox = new();
     private readonly LinkLabel _serverLink = new();
-    private readonly ComboBox _themeComboBox = new();
+    private readonly ThemeIconButton _themeButton = new();
+    private readonly ToolTip _toolTip = new();
     private readonly ToggleSwitch _autoStartServerSwitch = new();
     private readonly ToggleSwitch _startWithWindowsSwitch = new();
     private readonly ToggleSwitch _startMinimizedSwitch = new();
@@ -77,7 +77,7 @@ internal sealed class MainForm : Form
         _notifyIcon.DoubleClick += (_, _) => ShowFromTray();
 
         BuildUi();
-        HandleCreated += (_, _) => NativeTheme.ApplyTitleBarTheme(this, _palette.IsDark);
+        HandleCreated += (_, _) => NativeTheme.ApplyWindowEffects(this, _palette.IsDark);
         Load += async (_, _) => await OnLoadedAsync();
         Shown += (_, _) => HideIfStartupRequested();
         FormClosing += async (_, e) => await OnFormClosingAsync(e);
@@ -89,6 +89,7 @@ internal sealed class MainForm : Form
         {
             _notifyIcon.Dispose();
             _trayMenu.Dispose();
+            _toolTip.Dispose();
             _server?.Dispose();
             _windowIcon?.Dispose();
             _trayIcon?.Dispose();
@@ -101,7 +102,7 @@ internal sealed class MainForm : Form
     {
         base.WndProc(ref message);
 
-        if (message.Msg == WmSettingChange && GetSelectedThemeMode() == AppThemeMode.System)
+        if (message.Msg == WmSettingChange && ParseThemeMode(_settings.ThemeMode) == AppThemeMode.System)
         {
             BeginInvoke(ApplyCurrentTheme);
         }
@@ -184,7 +185,7 @@ internal sealed class MainForm : Form
             BackColor = Color.Transparent
         };
         rightStack.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
-        rightStack.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
+        rightStack.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
         rightStack.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         layout.Controls.Add(rightStack, 2, 0);
 
@@ -202,23 +203,10 @@ internal sealed class MainForm : Form
         };
         rightStack.Controls.Add(themeRow, 0, 1);
 
-        _themeComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
-        _themeComboBox.Width = 122;
-        _themeComboBox.Height = 28;
-        _themeComboBox.FlatStyle = FlatStyle.Flat;
-        _themeComboBox.Items.AddRange(new object[]
-        {
-            new ThemeOption(AppThemeMode.System, "Sistema"),
-            new ThemeOption(AppThemeMode.Dark, "Oscuro"),
-            new ThemeOption(AppThemeMode.Light, "Claro")
-        });
-        _themeComboBox.SelectedIndexChanged += (_, _) => OnThemeChanged();
-        themeRow.Controls.Add(_themeComboBox);
-
-        ConfigureLabel(_addressCaptionLabel, "Tema", 9f, FontStyle.Regular, muted: true);
-        _addressCaptionLabel.AutoSize = true;
-        _addressCaptionLabel.Margin = new Padding(0, 5, 8, 0);
-        themeRow.Controls.Add(_addressCaptionLabel);
+        _themeButton.Margin = new Padding(0, 0, 0, 0);
+        _themeButton.Click += (_, _) => ToggleTheme();
+        _toolTip.SetToolTip(_themeButton, "Cambiar tema");
+        themeRow.Controls.Add(_themeButton);
 
         _serverLink.Text = "Sin direccion activa";
         _serverLink.AutoSize = false;
@@ -702,13 +690,14 @@ internal sealed class MainForm : Form
         _logTextBox.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}");
     }
 
-    private void OnThemeChanged()
+    private void ToggleTheme()
     {
         if (_isApplyingSettings)
         {
             return;
         }
 
+        _themeButton.IsDarkTheme = !_themeButton.IsDarkTheme;
         _settings.ThemeMode = GetSelectedThemeMode().ToString();
         ApplyCurrentTheme();
         SaveSettingsFromUi(showConfirmation: false);
@@ -719,9 +708,11 @@ internal sealed class MainForm : Form
         _palette = SystemTheme.Resolve(GetSelectedThemeMode());
         BackColor = _palette.Window;
         ForeColor = _palette.Text;
-        NativeTheme.ApplyTitleBarTheme(this, _palette.IsDark);
+        NativeTheme.ApplyWindowEffects(this, _palette.IsDark);
         ApplyPaletteRecursive(this);
         ApplyTrayTheme();
+        _themeButton.IsDarkTheme = _palette.IsDark;
+        _toolTip.SetToolTip(_themeButton, _palette.IsDark ? "Cambiar a modo claro" : "Cambiar a modo oscuro");
     }
 
     private void ApplyPaletteRecursive(Control control)
@@ -742,11 +733,6 @@ internal sealed class MainForm : Form
         {
             textBox.BackColor = _palette.Elevated;
             textBox.ForeColor = _palette.Text;
-        }
-        else if (control is ComboBox comboBox)
-        {
-            comboBox.BackColor = _palette.Elevated;
-            comboBox.ForeColor = _palette.Text;
         }
         else if (control is Label label)
         {
@@ -819,20 +805,17 @@ internal sealed class MainForm : Form
 
     private void SelectThemeMode(AppThemeMode mode)
     {
-        for (var index = 0; index < _themeComboBox.Items.Count; index++)
+        if (mode == AppThemeMode.System)
         {
-            if (_themeComboBox.Items[index] is ThemeOption option && option.Mode == mode)
-            {
-                _themeComboBox.SelectedIndex = index;
-                return;
-            }
+            _themeButton.IsDarkTheme = SystemTheme.Resolve(AppThemeMode.System).IsDark;
+            return;
         }
 
-        _themeComboBox.SelectedIndex = 0;
+        _themeButton.IsDarkTheme = mode == AppThemeMode.Dark;
     }
 
     private AppThemeMode GetSelectedThemeMode() =>
-        _themeComboBox.SelectedItem is ThemeOption option ? option.Mode : AppThemeMode.System;
+        _themeButton.IsDarkTheme ? AppThemeMode.Dark : AppThemeMode.Light;
 
     private static AppThemeMode ParseThemeMode(string value) =>
         Enum.TryParse<AppThemeMode>(value, ignoreCase: true, out var mode) ? mode : AppThemeMode.System;
@@ -874,10 +857,5 @@ internal sealed class MainForm : Form
         label.Font = new Font("Segoe UI", size, style);
         label.TextAlign = ContentAlignment.MiddleLeft;
         label.Tag = muted ? "muted" : null;
-    }
-
-    private sealed record ThemeOption(AppThemeMode Mode, string Label)
-    {
-        public override string ToString() => Label;
     }
 }

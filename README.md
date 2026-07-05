@@ -12,7 +12,7 @@ App de Windows para compartir una carpeta como servidor DLNA/UPnP en la red loca
    - Iniciar con Windows.
    - Abrir minimizada cuando inicia con Windows.
    - Quedar en el area de notificacion al cerrar la ventana.
-5. Elige tema: Sistema, Oscuro o Claro.
+5. Cambia entre modo claro y oscuro con el boton de sol/luna.
 6. Guarda opciones y pulsa **Iniciar**.
 
 ## Ejecutable
@@ -27,3 +27,4 @@ El ejecutable publicado queda en:
 - La app anuncia el servidor por DLNA/UPnP y sirve video, musica e imagenes comunes.
 - No convierte ni transcodifica archivos: el reproductor debe soportar el formato y codec del archivo original.
 - El icono de la ventana, barra de tareas y bandeja usa la identidad visual oscura de Folder DLNA.
+- En Windows 11 compatible, la ventana activa Mica automaticamente. En otras versiones usa el fondo propio de la app.

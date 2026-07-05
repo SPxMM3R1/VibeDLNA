@@ -33,11 +33,11 @@ internal sealed class AppPalette
     public static AppPalette Dark { get; } = new()
     {
         IsDark = true,
-        Window = Color.FromArgb(12, 16, 24),
-        Surface = Color.FromArgb(19, 25, 36),
-        SurfaceAlt = Color.FromArgb(25, 33, 47),
-        Elevated = Color.FromArgb(32, 41, 57),
-        Border = Color.FromArgb(56, 68, 89),
+        Window = Color.FromArgb(9, 13, 20),
+        Surface = Color.FromArgb(20, 26, 38),
+        SurfaceAlt = Color.FromArgb(26, 34, 49),
+        Elevated = Color.FromArgb(34, 43, 60),
+        Border = Color.FromArgb(62, 75, 98),
         Text = Color.FromArgb(242, 246, 250),
         MutedText = Color.FromArgb(151, 164, 184),
         Accent = Color.FromArgb(231, 57, 156),
@@ -51,11 +51,11 @@ internal sealed class AppPalette
     public static AppPalette Light { get; } = new()
     {
         IsDark = false,
-        Window = Color.FromArgb(244, 247, 251),
-        Surface = Color.FromArgb(255, 255, 255),
-        SurfaceAlt = Color.FromArgb(238, 243, 249),
-        Elevated = Color.FromArgb(248, 250, 253),
-        Border = Color.FromArgb(207, 218, 232),
+        Window = Color.FromArgb(241, 245, 250),
+        Surface = Color.FromArgb(252, 254, 255),
+        SurfaceAlt = Color.FromArgb(236, 242, 248),
+        Elevated = Color.FromArgb(246, 250, 253),
+        Border = Color.FromArgb(200, 213, 229),
         Text = Color.FromArgb(25, 34, 48),
         MutedText = Color.FromArgb(92, 106, 126),
         Accent = Color.FromArgb(196, 32, 129),
