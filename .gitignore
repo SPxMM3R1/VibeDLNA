@@ -1,0 +1,14 @@
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Local publish output can be regenerated with dotnet publish.
+publish/
+
+# Windows noise.
+Thumbs.db
+Desktop.ini
