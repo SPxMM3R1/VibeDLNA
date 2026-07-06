@@ -18,7 +18,7 @@ internal sealed class OptionsDialog : Form
     private readonly FloatingSwitchRow _minimizeToTraySwitch = new();
 
     private Color DialogBackground => _palette.IsDark
-        ? _palette.Elevated
+        ? Color.FromArgb(94, 107, 136)
         : _palette.Window;
 
     private Color FieldBackground => _palette.IsDark
