@@ -7,23 +7,19 @@ internal sealed class OptionsDialog : Form
     private readonly Action _rescanAction;
     private readonly ListBox _foldersList = new();
     private readonly TextBox _deviceNameTextBox = new();
-    private readonly ToggleSwitch _autoRescanSwitch = new();
-    private readonly ToggleSwitch _shareVideosSwitch = new();
-    private readonly ToggleSwitch _shareAudioSwitch = new();
-    private readonly ToggleSwitch _shareImagesSwitch = new();
-    private readonly ToggleSwitch _keepAwakeSwitch = new();
-    private readonly ToggleSwitch _autoStartServerSwitch = new();
-    private readonly ToggleSwitch _startWithWindowsSwitch = new();
-    private readonly ToggleSwitch _startMinimizedSwitch = new();
-    private readonly ToggleSwitch _minimizeToTraySwitch = new();
+    private readonly FloatingSwitchRow _autoRescanSwitch = new();
+    private readonly FloatingSwitchRow _shareVideosSwitch = new();
+    private readonly FloatingSwitchRow _shareAudioSwitch = new();
+    private readonly FloatingSwitchRow _shareImagesSwitch = new();
+    private readonly FloatingSwitchRow _keepAwakeSwitch = new();
+    private readonly FloatingSwitchRow _autoStartServerSwitch = new();
+    private readonly FloatingSwitchRow _startWithWindowsSwitch = new();
+    private readonly FloatingSwitchRow _startMinimizedSwitch = new();
+    private readonly FloatingSwitchRow _minimizeToTraySwitch = new();
 
-    private Color DialogBackground => _palette.IsDark
-        ? Color.FromArgb(38, 41, 53)
-        : _palette.Surface;
+    private Color DialogBackground => _palette.Window;
 
-    private Color FieldBackground => _palette.IsDark
-        ? Color.FromArgb(70, 82, 108)
-        : _palette.Elevated;
+    private Color FieldBackground => _palette.Elevated;
 
     public OptionsDialog(AppSettings settings, AppPalette palette, Action rescanAction)
     {
@@ -328,61 +324,15 @@ internal sealed class OptionsDialog : Form
         label.Margin = new Padding(0, 0, 8, 0);
     }
 
-    private Control CreateSwitchRow(ToggleSwitch toggleSwitch, string text, bool isChecked)
+    private Control CreateSwitchRow(FloatingSwitchRow switchRow, string text, bool isChecked)
     {
-        ConfigureSwitch(toggleSwitch, isChecked);
-
-        var row = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 2,
-            RowCount = 1,
-            Margin = new Padding(0),
-            Padding = new Padding(0, 2, 0, 2),
-            BackColor = DialogBackground,
-            Cursor = Cursors.Hand
-        };
-        row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 56));
-        row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-
-        var textLabel = new Label
-        {
-            Text = text,
-            Dock = DockStyle.Fill,
-            AutoSize = false,
-            BackColor = DialogBackground,
-            ForeColor = _palette.Text,
-            TextAlign = ContentAlignment.MiddleLeft,
-            Font = new Font("Segoe UI", 9.5f, FontStyle.Regular),
-            Cursor = Cursors.Hand
-        };
-
-        void Toggle()
-        {
-            if (toggleSwitch.Enabled)
-            {
-                toggleSwitch.Checked = !toggleSwitch.Checked;
-            }
-        }
-
-        row.Click += (_, _) => Toggle();
-        textLabel.Click += (_, _) => Toggle();
-        row.Controls.Add(toggleSwitch, 0, 0);
-        row.Controls.Add(textLabel, 1, 0);
-        return row;
-    }
-
-    private void ConfigureSwitch(ToggleSwitch toggleSwitch, bool isChecked)
-    {
-        toggleSwitch.Text = string.Empty;
-        toggleSwitch.Checked = isChecked;
-        toggleSwitch.ShowText = false;
-        toggleSwitch.Dock = DockStyle.Left;
-        toggleSwitch.Width = 48;
-        toggleSwitch.Height = 30;
-        toggleSwitch.Margin = new Padding(0);
-        toggleSwitch.HostBackColor = DialogBackground;
-        toggleSwitch.ApplyPalette(_palette);
+        switchRow.Text = text;
+        switchRow.Checked = isChecked;
+        switchRow.Dock = DockStyle.Fill;
+        switchRow.HostBackColor = DialogBackground;
+        switchRow.Font = new Font("Segoe UI", 9.5f, FontStyle.Regular);
+        switchRow.ApplyPalette(_palette);
+        return switchRow;
     }
 
     private void ApplyPalette(Control control)
@@ -399,10 +349,10 @@ internal sealed class OptionsDialog : Form
             listBox.BackColor = FieldBackground;
             listBox.ForeColor = _palette.Text;
         }
-        else if (control is ToggleSwitch toggleSwitch)
+        else if (control is FloatingSwitchRow switchRow)
         {
-            toggleSwitch.HostBackColor = DialogBackground;
-            toggleSwitch.ApplyPalette(_palette);
+            switchRow.HostBackColor = DialogBackground;
+            switchRow.ApplyPalette(_palette);
         }
         else if (control is Label label && label.Tag is Color labelColor)
         {

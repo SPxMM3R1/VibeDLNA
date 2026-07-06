@@ -148,7 +148,7 @@ internal sealed class MainForm : Form
             Dock = DockStyle.Fill,
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = false,
-            Padding = new Padding(18, 2, 0, 0)
+            Padding = new Padding(12, 2, 0, 0)
         };
         ConfigureMenuLabel(_optionsMenuLabel, "Opciones", OpenOptionsDialog);
         host.Controls.Add(_optionsMenuLabel);
@@ -1247,8 +1247,9 @@ internal sealed class MainForm : Form
     {
         _themeGlyphLabel.Text = "☾";
         _themeGlyphLabel.AutoSize = false;
-        _themeGlyphLabel.Size = new Size(46, 42);
-        _themeGlyphLabel.Margin = new Padding(4, 0, 0, 0);
+        _themeGlyphLabel.Size = new Size(50, 42);
+        _themeGlyphLabel.Margin = new Padding(0);
+        _themeGlyphLabel.Dock = DockStyle.Fill;
         _themeGlyphLabel.BackColor = Color.Transparent;
         _themeGlyphLabel.TextAlign = ContentAlignment.MiddleCenter;
         _themeGlyphLabel.Font = new Font("Segoe UI Symbol", 20f, FontStyle.Regular);
@@ -1264,7 +1265,7 @@ internal sealed class MainForm : Form
         label.Size = new Size(82, 28);
         label.Margin = new Padding(0);
         label.BackColor = Color.Transparent;
-        label.TextAlign = ContentAlignment.MiddleCenter;
+        label.TextAlign = ContentAlignment.MiddleLeft;
         label.Font = new Font("Segoe UI", 9.5f, FontStyle.Regular);
         label.Cursor = Cursors.Hand;
         label.MouseDown += (_, _) =>

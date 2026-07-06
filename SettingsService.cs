@@ -83,8 +83,13 @@ internal static class SettingsService
     public static bool IsStartupEnabled()
     {
         using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: false);
-        return key?.GetValue(RunValueName) is string value && value.Contains(Application.ExecutablePath, StringComparison.OrdinalIgnoreCase)
-            || key?.GetValue(LegacyRunValueName) is string;
+        if (key?.GetValue(RunValueName) is string value)
+        {
+            return value.Contains("VibeDLNA", StringComparison.OrdinalIgnoreCase)
+                || value.Contains(Application.ExecutablePath, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return key?.GetValue(LegacyRunValueName) is string;
     }
 
     private static void Normalize(AppSettings settings)
