@@ -879,7 +879,9 @@ internal sealed class MainForm : Form
         _settings = dialog.Settings;
         SyncOptionSwitches();
         ApplySettingsToUi();
-        SaveSettingsFromUi(showConfirmation: false);
+        SettingsService.Save(_settings);
+        _folderTextBox.Text = GetFolderSummary();
+        RefreshStatusView();
         Log("Opciones actualizadas.");
 
         if (wasRunning)

@@ -7,6 +7,7 @@ internal static class NativeTheme
     private const int DwmwaUseImmersiveDarkMode = 20;
     private const int DwmwaSystemBackdropType = 38;
     private const int DwmwaMicaEffect = 1029;
+    private const int DwmSystemBackdropNone = 1;
     private const int DwmSystemBackdropMainWindow = 2;
 
     public static void ApplyWindowEffects(Form form, bool dark)
@@ -18,6 +19,34 @@ internal static class NativeTheme
 
         TrySetWindowAttribute(form.Handle, DwmwaUseImmersiveDarkMode, dark ? 1 : 0);
         TryEnableMica(form.Handle);
+    }
+
+    public static void ApplyDarkTitleBar(Form form, bool dark)
+    {
+        if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 17763))
+        {
+            return;
+        }
+
+        TrySetWindowAttribute(form.Handle, DwmwaUseImmersiveDarkMode, dark ? 1 : 0);
+    }
+
+    public static void ApplyFlatWindow(Form form, bool dark)
+    {
+        if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 17763))
+        {
+            return;
+        }
+
+        TrySetWindowAttribute(form.Handle, DwmwaUseImmersiveDarkMode, dark ? 1 : 0);
+        if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22621))
+        {
+            TrySetWindowAttribute(form.Handle, DwmwaSystemBackdropType, DwmSystemBackdropNone);
+        }
+        else if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
+        {
+            TrySetWindowAttribute(form.Handle, DwmwaMicaEffect, 0);
+        }
     }
 
     private static void TryEnableMica(IntPtr handle)

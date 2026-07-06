@@ -19,9 +19,9 @@ internal sealed class OptionsDialog : Form
     private bool _startMinimized;
     private bool _minimizeToTray;
 
-    private Color DialogBackground => _palette.IsDark ? Color.FromArgb(41, 45, 52) : _palette.Window;
-    private Color FieldBackground => _palette.IsDark ? Color.FromArgb(64, 75, 98) : _palette.Elevated;
-    private Color FloatingBackground => _palette.IsDark ? Color.FromArgb(83, 72, 80) : DialogBackground;
+    private Color DialogBackground => _palette.Window;
+    private Color FieldBackground => _palette.Elevated;
+    private Color OptionBackground => _palette.IsDark ? Color.FromArgb(51, 40, 48) : DialogBackground;
 
     public OptionsDialog(AppSettings settings, AppPalette palette, Action rescanAction)
     {
@@ -47,6 +47,7 @@ internal sealed class OptionsDialog : Form
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         MinimizeBox = false;
+        HandleCreated += (_, _) => NativeTheme.ApplyFlatWindow(this, _palette.IsDark);
 
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
         BuildUi();
@@ -185,8 +186,8 @@ internal sealed class OptionsDialog : Form
             Padding = new Padding(0, 12, 0, 0),
             BackColor = DialogBackground
         };
-        footer.Controls.Add(CreateTextCommand("OK  Guardar", _palette.AccentAlt, SaveAndClose));
-        footer.Controls.Add(CreateTextCommand("x  Cancelar", _palette.MutedText, () => DialogResult = DialogResult.Cancel));
+        footer.Controls.Add(CreateTextCommand("OK  Guardar", _palette.AccentAlt, SaveAndClose, fillParent: false));
+        footer.Controls.Add(CreateTextCommand("x  Cancelar", _palette.MutedText, () => DialogResult = DialogResult.Cancel, fillParent: false));
         return footer;
     }
 
@@ -196,7 +197,7 @@ internal sealed class OptionsDialog : Form
         {
             Text = text,
             Dock = DockStyle.Fill,
-            HostBackColor = FloatingBackground,
+            HostBackColor = OptionBackground,
             Checked = getValue(),
             Enabled = canUse?.Invoke() ?? true
         };
@@ -216,13 +217,14 @@ internal sealed class OptionsDialog : Form
         return line;
     }
 
-    private Label CreateTextCommand(string text, Color color, Action action)
+    private Label CreateTextCommand(string text, Color color, Action action, bool fillParent = true)
     {
         var label = new Label
         {
             Text = text,
-            Dock = DockStyle.Fill,
+            Dock = fillParent ? DockStyle.Fill : DockStyle.None,
             AutoSize = false,
+            Size = fillParent ? Size.Empty : new Size(126, 28),
             BackColor = DialogBackground,
             ForeColor = color,
             Font = new Font("Segoe UI", 9.5f, FontStyle.Regular),
@@ -242,7 +244,7 @@ internal sealed class OptionsDialog : Form
     {
         foreach (var line in _optionLines)
         {
-            line.HostBackColor = FloatingBackground;
+            line.HostBackColor = OptionBackground;
             line.Checked = line.GetValue();
             line.Enabled = line.CanUse?.Invoke() ?? true;
             line.ApplyPalette(_palette);
@@ -385,7 +387,7 @@ internal sealed class OptionsDialog : Form
         }
         else if (control is OptionLine optionLine)
         {
-            optionLine.HostBackColor = FloatingBackground;
+            optionLine.HostBackColor = OptionBackground;
             optionLine.ApplyPalette(_palette);
         }
         else if (control is Label label && label.Tag is Color labelColor)
