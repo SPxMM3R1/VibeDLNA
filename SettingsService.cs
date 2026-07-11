@@ -22,10 +22,13 @@ internal static class SettingsService
 
     public static string SettingsPath => Path.Combine(AppDataFolder, "settings.json");
 
+    public static string? LastLoadWarning { get; private set; }
+
     private static string LegacySettingsPath => Path.Combine(LegacyAppDataFolder, "settings.json");
 
     public static AppSettings Load()
     {
+        LastLoadWarning = null;
         try
         {
             var path = File.Exists(SettingsPath) ? SettingsPath : LegacySettingsPath;
@@ -38,9 +41,10 @@ internal static class SettingsService
                 return settings;
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // If the settings file is damaged, fall back to defaults and let the user save again.
+            TryBackupInvalidSettings();
+            LastLoadWarning = $"La configuracion no se pudo leer y se restauraron valores seguros: {ex.Message}";
         }
 
         var defaults = new AppSettings
@@ -55,7 +59,10 @@ internal static class SettingsService
     {
         Normalize(settings);
         Directory.CreateDirectory(AppDataFolder);
-        File.WriteAllText(SettingsPath, JsonSerializer.Serialize(settings, SerializerOptions));
+        var json = JsonSerializer.Serialize(settings, SerializerOptions);
+        var temporaryPath = SettingsPath + ".tmp";
+        File.WriteAllText(temporaryPath, json);
+        File.Move(temporaryPath, SettingsPath, overwrite: true);
         SyncStartup(settings);
     }
 
@@ -92,7 +99,41 @@ internal static class SettingsService
         return key?.GetValue(LegacyRunValueName) is string;
     }
 
-    private static void Normalize(AppSettings settings)
+    public static void RefreshStartupRegistration(AppSettings settings)
+    {
+        if (settings.StartWithWindows)
+        {
+            SyncStartup(settings);
+        }
+    }
+
+    internal static string? GetStartupCommand()
+    {
+        using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: false);
+        return key?.GetValue(RunValueName) as string;
+    }
+
+    private static void TryBackupInvalidSettings()
+    {
+        try
+        {
+            var source = File.Exists(SettingsPath) ? SettingsPath : LegacySettingsPath;
+            if (!File.Exists(source))
+            {
+                return;
+            }
+
+            Directory.CreateDirectory(AppDataFolder);
+            var backup = Path.Combine(AppDataFolder, $"settings.invalid-{DateTime.Now:yyyyMMdd-HHmmss}.json");
+            File.Copy(source, backup, overwrite: false);
+        }
+        catch
+        {
+            // A backup is best effort; loading defaults must still succeed.
+        }
+    }
+
+    internal static void Normalize(AppSettings settings)
     {
         settings.MediaFolders ??= new List<string>();
 

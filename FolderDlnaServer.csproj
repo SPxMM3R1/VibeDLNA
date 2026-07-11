@@ -8,6 +8,23 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>VibeDLNA</AssemblyName>
     <ApplicationIcon>Assets\VibeDLNA.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <Version>1.0.0</Version>
+    <FileVersion>1.0.0.0</FileVersion>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <Product>VibeDLNA</Product>
+    <Company>VibeDLNA</Company>
+    <Description>Servidor DLNA para compartir carpetas en la red local.</Description>
+    <RepositoryUrl>https://gitlab.com/roberto.ramos.dz/folder-dlna-server</RepositoryUrl>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
   </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="VibeDLNA.Tests" />
+    <Compile Remove="VibeDLNA.Tests\**\*.cs" />
+  </ItemGroup>
 
 </Project>

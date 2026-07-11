@@ -17,14 +17,25 @@ App de Windows para compartir carpetas como servidor DLNA/UPnP en la red local.
 
 ## Ejecutable
 
-El ejecutable publicado queda en:
+Para crear una publicacion autocontenida de un solo archivo y ejecutar las pruebas:
 
-`bin\Release\net8.0-windows\win-x64\publish\VibeDLNA.exe`
+```powershell
+.\build-release.ps1
+```
+
+El ejecutable queda en `artifacts\publish\VibeDLNA.exe`. Si Inno Setup 6 esta instalado, el mismo comando genera `artifacts\installer\VibeDLNA-Setup-1.0.0.exe`.
+
+La firma Authenticode es opcional y requiere un certificado instalado:
+
+```powershell
+.\build-release.ps1 -SigningCertificateThumbprint "HUELLA_DEL_CERTIFICADO"
+```
 
 ## Notas
 
 - La primera vez, Windows puede pedir permiso de firewall. Permite acceso en red privada para que la TV lo encuentre.
 - La app anuncia el servidor por DLNA/UPnP y sirve video, musica e imagenes comunes.
 - No convierte ni transcodifica archivos: el reproductor debe soportar el formato y codec del archivo original.
+- El registro de actividad persistente queda en `%APPDATA%\VibeDLNA\VibeDLNA.log`.
 - El icono de la ventana, barra de tareas y bandeja usa la identidad visual oscura de VibeDLNA.
 - En Windows 11 compatible, la ventana activa Mica automaticamente. En otras versiones usa el fondo propio de la app.

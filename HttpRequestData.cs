@@ -5,6 +5,8 @@ namespace FolderDlnaServer;
 
 internal sealed class HttpRequestData
 {
+    private const int MaximumHeaderBytes = 64 * 1024;
+    private const int MaximumBodyBytes = 1024 * 1024;
     public required string Method { get; init; }
 
     public required string Target { get; init; }
@@ -33,7 +35,7 @@ internal sealed class HttpRequestData
 
             raw.Write(buffer, 0, read);
             headerEnd = FindHeaderEnd(raw.GetBuffer(), (int)raw.Length);
-            if (raw.Length > 128 * 1024)
+            if (raw.Length > MaximumHeaderBytes)
             {
                 throw new InvalidDataException("HTTP headers too large.");
             }
@@ -69,7 +71,10 @@ internal sealed class HttpRequestData
         var contentLength = 0;
         if (headers.TryGetValue("Content-Length", out var contentLengthValue))
         {
-            int.TryParse(contentLengthValue, out contentLength);
+            if (!int.TryParse(contentLengthValue, out contentLength) || contentLength < 0 || contentLength > MaximumBodyBytes)
+            {
+                throw new InvalidDataException("HTTP body too large or invalid.");
+            }
         }
 
         var bodyStart = headerEnd + 4;

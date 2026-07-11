@@ -8,6 +8,7 @@ obj/
 
 # Local publish output can be regenerated with dotnet publish.
 publish/
+artifacts/
 
 # Windows noise.
 Thumbs.db

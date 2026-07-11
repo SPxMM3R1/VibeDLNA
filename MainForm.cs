@@ -1,5 +1,3 @@
-using System.Diagnostics;
-
 namespace FolderDlnaServer;
 
 internal sealed class MainForm : Form
@@ -14,18 +12,9 @@ internal sealed class MainForm : Form
     private readonly ToolStripMenuItem _trayExitItem;
 
     private readonly TableLayoutPanel _root = new();
-    private readonly LogoMark _logoMark = new();
-    private readonly StatusPill _statusPill = new();
-    private readonly Label _titleLabel = new();
-    private readonly Label _subtitleLabel = new();
-    private readonly Label _networkLabel = new();
-    private readonly Label _folderStateLabel = new();
-    private readonly Label _deviceStateLabel = new();
     private readonly Label _footerLabel = new();
     private readonly TextBox _folderTextBox = new();
     private readonly TextBox _deviceNameTextBox = new();
-    private readonly TextBox _logTextBox = new();
-    private readonly LinkLabel _serverLink = new();
     private readonly Label _themeGlyphLabel = new();
     private readonly Label _optionsMenuLabel = new();
     private readonly ToolTip _toolTip = new();
@@ -39,13 +28,6 @@ internal sealed class MainForm : Form
     private readonly Label _sidebarWindowsLabel = new();
     private readonly Label _bottomAddressLabel = new();
     private readonly Label _bottomStateLabel = new();
-    private readonly ToggleSwitch _autoStartServerSwitch = new();
-    private readonly ToggleSwitch _startWithWindowsSwitch = new();
-    private readonly ToggleSwitch _startMinimizedSwitch = new();
-    private readonly ToggleSwitch _minimizeToTraySwitch = new();
-    private readonly ModernButton _browseButton = new();
-    private readonly ModernButton _startStopButton = new();
-    private readonly ModernButton _saveButton = new();
 
     private AppSettings _settings = new();
     private AppPalette _palette = AppPalette.Dark;
@@ -303,316 +285,6 @@ internal sealed class MainForm : Form
         status.Controls.Add(_bottomAddressLabel, 1, 0);
         status.Controls.Add(_bottomStateLabel, 2, 0);
     }
-
-    private void BuildHeader()
-    {
-        var header = new ModernCard
-        {
-            Dock = DockStyle.Fill,
-            Padding = new Padding(18),
-            Margin = new Padding(0, 0, 0, 14),
-            AccentColor = AppPalette.Dark.Accent
-        };
-        _root.Controls.Add(header, 0, 0);
-
-        var layout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 3,
-            RowCount = 1,
-            BackColor = Color.Transparent
-        };
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 86));
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 230));
-        header.Controls.Add(layout);
-
-        _logoMark.Dock = DockStyle.Fill;
-        layout.Controls.Add(_logoMark, 0, 0);
-
-        var titleStack = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 1,
-            RowCount = 3,
-            BackColor = Color.Transparent
-        };
-        titleStack.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
-        titleStack.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-        titleStack.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        layout.Controls.Add(titleStack, 1, 0);
-
-        ConfigureLabel(_titleLabel, "VibeDLNA", 22f, FontStyle.Bold);
-        _titleLabel.Dock = DockStyle.Fill;
-        titleStack.Controls.Add(_titleLabel, 0, 0);
-
-        ConfigureLabel(_subtitleLabel, "Servidor de medios para tu red local", 9.5f, FontStyle.Regular, muted: true);
-        _subtitleLabel.Dock = DockStyle.Fill;
-        titleStack.Controls.Add(_subtitleLabel, 0, 1);
-
-        ConfigureLabel(_networkLabel, "Selecciona una carpeta para activar el servidor", 9f, FontStyle.Regular, muted: true);
-        _networkLabel.Dock = DockStyle.Fill;
-        _networkLabel.TextAlign = ContentAlignment.BottomLeft;
-        titleStack.Controls.Add(_networkLabel, 0, 2);
-
-        var rightStack = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 1,
-            RowCount = 3,
-            BackColor = Color.Transparent
-        };
-        rightStack.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
-        rightStack.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
-        rightStack.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        layout.Controls.Add(rightStack, 2, 0);
-
-        _statusPill.Text = "DETENIDO";
-        _statusPill.Kind = StatusKind.Offline;
-        _statusPill.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        rightStack.Controls.Add(_statusPill, 0, 0);
-
-        var themeRow = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.RightToLeft,
-            WrapContents = false,
-            BackColor = Color.Transparent
-        };
-        rightStack.Controls.Add(themeRow, 0, 1);
-
-        ConfigureThemeGlyph();
-        themeRow.Controls.Add(_themeGlyphLabel);
-
-        _serverLink.Text = "Sin direccion activa";
-        _serverLink.AutoSize = false;
-        _serverLink.Dock = DockStyle.Fill;
-        _serverLink.TextAlign = ContentAlignment.BottomRight;
-        _serverLink.LinkClicked += (_, _) => OpenServerLink();
-        rightStack.Controls.Add(_serverLink, 0, 2);
-    }
-
-    private void BuildMainCards()
-    {
-        var grid = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 2,
-            RowCount = 1,
-            Margin = new Padding(0, 0, 0, 14),
-            BackColor = Color.Transparent
-        };
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 58));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 42));
-        _root.Controls.Add(grid, 0, 1);
-
-        var mediaCard = new ModernCard
-        {
-            Dock = DockStyle.Fill,
-            Padding = new Padding(20),
-            Margin = new Padding(0, 0, 8, 0),
-            AccentColor = AppPalette.Dark.AccentAlt
-        };
-        grid.Controls.Add(mediaCard, 0, 0);
-        BuildMediaCard(mediaCard);
-
-        var automationCard = new ModernCard
-        {
-            Dock = DockStyle.Fill,
-            Padding = new Padding(20),
-            Margin = new Padding(8, 0, 0, 0),
-            AccentColor = AppPalette.Dark.Accent
-        };
-        grid.Controls.Add(automationCard, 1, 0);
-        BuildAutomationCard(automationCard);
-    }
-
-    private void BuildMediaCard(Control host)
-    {
-        var layout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 1,
-            RowCount = 7,
-            BackColor = Color.Transparent
-        };
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        host.Controls.Add(layout);
-
-        layout.Controls.Add(CreateSectionTitle("Biblioteca"), 0, 0);
-        layout.Controls.Add(CreateCaption("Carpeta compartida"), 0, 1);
-
-        var folderRow = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 2,
-            BackColor = Color.Transparent
-        };
-        folderRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        folderRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 136));
-        layout.Controls.Add(folderRow, 0, 2);
-
-        ConfigureTextBox(_folderTextBox);
-        _folderTextBox.ReadOnly = true;
-        _folderTextBox.Margin = new Padding(0, 2, 8, 4);
-        folderRow.Controls.Add(_folderTextBox, 0, 0);
-
-        _browseButton.Text = "Seleccionar";
-        _browseButton.Margin = new Padding(0, 2, 0, 4);
-        _browseButton.Click += (_, _) => SelectFolder();
-        folderRow.Controls.Add(_browseButton, 1, 0);
-
-        layout.Controls.Add(CreateCaption("Nombre visible en la TV"), 0, 3);
-
-        ConfigureTextBox(_deviceNameTextBox);
-        _deviceNameTextBox.Margin = new Padding(0, 2, 0, 4);
-        layout.Controls.Add(_deviceNameTextBox, 0, 4);
-
-        ConfigureLabel(_folderStateLabel, "Sin carpeta seleccionada", 9f, FontStyle.Bold, muted: true);
-        _folderStateLabel.Dock = DockStyle.Fill;
-        layout.Controls.Add(_folderStateLabel, 0, 5);
-
-        ConfigureLabel(_deviceStateLabel, "Compatible con DLNA/UPnP en red privada", 9f, FontStyle.Regular, muted: true);
-        _deviceStateLabel.Dock = DockStyle.Fill;
-        _deviceStateLabel.TextAlign = ContentAlignment.BottomLeft;
-        layout.Controls.Add(_deviceStateLabel, 0, 6);
-    }
-
-    private void BuildAutomationCard(Control host)
-    {
-        var layout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 1,
-            RowCount = 6,
-            BackColor = Color.Transparent
-        };
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        host.Controls.Add(layout);
-
-        layout.Controls.Add(CreateSectionTitle("Comportamiento"), 0, 0);
-
-        ConfigureSwitch(_autoStartServerSwitch, "Iniciar servidor al abrir");
-        layout.Controls.Add(_autoStartServerSwitch, 0, 1);
-
-        ConfigureSwitch(_startWithWindowsSwitch, "Iniciar con Windows");
-        _startWithWindowsSwitch.CheckedChanged += (_, _) => _startMinimizedSwitch.Enabled = _startWithWindowsSwitch.Checked;
-        layout.Controls.Add(_startWithWindowsSwitch, 0, 2);
-
-        ConfigureSwitch(_startMinimizedSwitch, "Abrir minimizada");
-        layout.Controls.Add(_startMinimizedSwitch, 0, 3);
-
-        ConfigureSwitch(_minimizeToTraySwitch, "Cerrar hacia bandeja");
-        layout.Controls.Add(_minimizeToTraySwitch, 0, 4);
-
-        var bottom = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 1,
-            RowCount = 2,
-            BackColor = Color.Transparent
-        };
-        bottom.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        bottom.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
-        layout.Controls.Add(bottom, 0, 5);
-
-        ConfigureLabel(_networkLabel, "Selecciona una carpeta para activar el servidor", 9f, FontStyle.Regular, muted: true);
-    }
-
-    private void BuildLogCard()
-    {
-        var logCard = new ModernCard
-        {
-            Dock = DockStyle.Fill,
-            Padding = new Padding(20),
-            AccentColor = Color.FromArgb(88, 105, 138)
-        };
-        _root.Controls.Add(logCard, 0, 2);
-
-        var layout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 1,
-            RowCount = 2,
-            BackColor = Color.Transparent
-        };
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        logCard.Controls.Add(layout);
-
-        layout.Controls.Add(CreateSectionTitle("Actividad"), 0, 0);
-
-        _logTextBox.Dock = DockStyle.Fill;
-        _logTextBox.Multiline = true;
-        _logTextBox.ScrollBars = ScrollBars.Vertical;
-        _logTextBox.ReadOnly = true;
-        _logTextBox.BorderStyle = BorderStyle.FixedSingle;
-        _logTextBox.Font = new Font("Consolas", 9f);
-        _logTextBox.Margin = new Padding(0);
-        layout.Controls.Add(_logTextBox, 0, 1);
-    }
-
-    private void BuildFooter()
-    {
-        var footer = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 2,
-            RowCount = 1,
-            BackColor = Color.Transparent
-        };
-        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 290));
-        _root.Controls.Add(footer, 0, 3);
-
-        var left = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false,
-            BackColor = Color.Transparent
-        };
-        footer.Controls.Add(left, 0, 0);
-
-        ConfigureLabel(_footerLabel, "VibeDLNA", 9f, FontStyle.Regular, muted: true);
-        _footerLabel.Dock = DockStyle.Fill;
-        _footerLabel.TextAlign = ContentAlignment.MiddleLeft;
-        left.Controls.Add(_footerLabel);
-
-        var buttons = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.RightToLeft,
-            WrapContents = false,
-            BackColor = Color.Transparent
-        };
-        footer.Controls.Add(buttons, 1, 0);
-
-        _startStopButton.Text = "Iniciar";
-        _startStopButton.IsPrimary = true;
-        _startStopButton.Width = 128;
-        _startStopButton.Margin = new Padding(8, 10, 0, 0);
-        _startStopButton.Click += async (_, _) => await ToggleServerAsync();
-        buttons.Controls.Add(_startStopButton);
-
-        _saveButton.Text = "Guardar";
-        _saveButton.Width = 128;
-        _saveButton.Margin = new Padding(0, 10, 0, 0);
-        _saveButton.Click += (_, _) => SaveSettingsFromUi(showConfirmation: true);
-        buttons.Controls.Add(_saveButton);
-    }
-
     private async Task OnLoadedAsync()
     {
         _settings = SettingsService.Load();
@@ -620,13 +292,32 @@ internal sealed class MainForm : Form
         ApplyCurrentTheme();
         Log("App lista.");
 
-        if (_settings.AutoStartServer && Directory.Exists(_settings.MediaFolder))
+        if (SettingsService.LastLoadWarning is { } warning)
+        {
+            Log(warning);
+            MessageBox.Show(this, warning, "VibeDLNA", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+
+        try
+        {
+            SettingsService.RefreshStartupRegistration(_settings);
+        }
+        catch (Exception ex)
+        {
+            Log($"No se pudo actualizar el inicio con Windows: {ex.Message}");
+        }
+
+        if (_settings.AutoStartServer && GetValidMediaFolders().Count > 0)
         {
             await StartServerAsync();
         }
-        else if (string.IsNullOrWhiteSpace(_settings.MediaFolder))
+        else if (_settings.MediaFolders.Count == 0)
         {
             Log("Selecciona una carpeta para compartir por DLNA.");
+        }
+        else if (GetValidMediaFolders().Count == 0)
+        {
+            Log("Las carpetas configuradas no estan disponibles. El servidor no se inicio.");
         }
     }
 
@@ -663,13 +354,7 @@ internal sealed class MainForm : Form
         _isApplyingSettings = true;
         _folderTextBox.Text = GetFolderSummary();
         _deviceNameTextBox.Text = _settings.DeviceName;
-        _autoStartServerSwitch.Checked = _settings.AutoStartServer;
-        _startWithWindowsSwitch.Checked = _settings.StartWithWindows;
-        _startMinimizedSwitch.Checked = _settings.StartMinimized;
-        _startMinimizedSwitch.Enabled = _settings.StartWithWindows;
-        _minimizeToTraySwitch.Checked = _settings.MinimizeToTray;
         SelectThemeMode(ParseThemeMode(_settings.ThemeMode));
-        UpdateFolderState();
         RefreshStatusView();
         _isApplyingSettings = false;
     }
@@ -677,16 +362,12 @@ internal sealed class MainForm : Form
     private void SaveSettingsFromUi(bool showConfirmation)
     {
         _settings.DeviceName = _deviceNameTextBox.Text.Trim();
-        _settings.AutoStartServer = _autoStartServerSwitch.Checked;
-        _settings.StartWithWindows = _startWithWindowsSwitch.Checked;
-        _settings.StartMinimized = _startMinimizedSwitch.Checked;
-        _settings.MinimizeToTray = _minimizeToTraySwitch.Checked;
         _settings.ThemeMode = _themeMode.ToString();
 
-        SettingsService.Save(_settings);
+        var saved = TryPersistSettings();
         _folderTextBox.Text = GetFolderSummary();
         RefreshStatusView();
-        if (showConfirmation)
+        if (showConfirmation && saved)
         {
             Log("Opciones guardadas.");
         }
@@ -712,7 +393,6 @@ internal sealed class MainForm : Form
             }
 
             SaveSettingsFromUi(showConfirmation: false);
-            UpdateFolderState();
             RefreshStatusView();
             Log($"Carpeta seleccionada: {dialog.SelectedPath}");
         }
@@ -762,16 +442,8 @@ internal sealed class MainForm : Form
             _server.Message += (_, message) => BeginInvoke(() => Log(message));
             await _server.StartAsync();
 
-            _statusPill.Text = "EN LINEA";
-            _statusPill.Kind = StatusKind.Online;
-            _statusPill.Invalidate();
-            _serverLink.Text = _server.DescriptionUrl;
-            _networkLabel.Text = "Visible para TVs y reproductores DLNA en esta red";
-            _startStopButton.Text = "Detener";
             _trayStartStopItem.Text = "Detener servidor";
             _notifyIcon.Text = "VibeDLNA - activo";
-            _logoMark.Active = true;
-            _logoMark.Invalidate();
             SetAppIcons(active: true);
             RefreshStatusView();
             RefreshCommandState();
@@ -782,11 +454,6 @@ internal sealed class MainForm : Form
         {
             _server?.Dispose();
             _server = null;
-            _statusPill.Text = "ERROR";
-            _statusPill.Kind = StatusKind.Warning;
-            _statusPill.Invalidate();
-            _serverLink.Text = "Sin direccion activa";
-            _networkLabel.Text = "No se pudo iniciar el servidor";
             SetAppIcons(active: false);
             RefreshStatusView();
             RefreshCommandState();
@@ -816,18 +483,8 @@ internal sealed class MainForm : Form
             await _server.StopAsync();
             _server.Dispose();
             _server = null;
-            _statusPill.Text = "DETENIDO";
-            _statusPill.Kind = StatusKind.Offline;
-            _statusPill.Invalidate();
-            _serverLink.Text = "Sin direccion activa";
-            _networkLabel.Text = Directory.Exists(_settings.MediaFolder)
-                ? "Carpeta lista; servidor detenido"
-                : "Selecciona una carpeta para activar el servidor";
-            _startStopButton.Text = "Iniciar";
             _trayStartStopItem.Text = "Iniciar servidor";
             _notifyIcon.Text = "VibeDLNA";
-            _logoMark.Active = false;
-            _logoMark.Invalidate();
             SetAppIcons(active: false);
             RefreshStatusView();
             RefreshCommandState();
@@ -841,10 +498,7 @@ internal sealed class MainForm : Form
 
     private void SetBusy(bool busy)
     {
-        _startStopButton.Enabled = !busy;
         _trayStartStopItem.Enabled = !busy;
-        _saveButton.Enabled = !busy;
-        _browseButton.Enabled = !busy;
         _folderTextBox.Enabled = !busy;
         _optionsMenuLabel.Enabled = !busy;
         _saveCommandAvailable = !busy;
@@ -877,9 +531,8 @@ internal sealed class MainForm : Form
 
         var wasRunning = _server is { IsRunning: true };
         _settings = dialog.Settings;
-        SyncOptionSwitches();
         ApplySettingsToUi();
-        SettingsService.Save(_settings);
+        TryPersistSettings();
         _folderTextBox.Text = GetFolderSummary();
         RefreshStatusView();
         Log("Opciones actualizadas.");
@@ -915,22 +568,9 @@ internal sealed class MainForm : Form
         Close();
     }
 
-    private void OpenServerLink()
-    {
-        if (_server is not { IsRunning: true })
-        {
-            return;
-        }
-
-        Process.Start(new ProcessStartInfo(_server.DescriptionUrl)
-        {
-            UseShellExecute = true
-        });
-    }
-
     private void Log(string message)
     {
-        _logTextBox.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}");
+        AppLog.Write(message);
         if (_logGrid.Columns.Count > 0)
         {
             _logGrid.Rows.Insert(0, DateTime.Now.ToString("HH:mm:ss"), message);
@@ -1062,26 +702,6 @@ internal sealed class MainForm : Form
         }
     }
 
-    private void UpdateFolderState()
-    {
-        if (GetValidMediaFolders().Count > 0)
-        {
-            _folderStateLabel.Text = "Carpeta lista para compartir";
-            _folderStateLabel.Tag = null;
-            _networkLabel.Text = _server is { IsRunning: true }
-                ? "Visible para TVs y reproductores DLNA en esta red"
-                : "Carpeta lista; servidor detenido";
-        }
-        else
-        {
-            _folderStateLabel.Text = "Sin carpeta seleccionada";
-            _folderStateLabel.Tag = "muted";
-            _networkLabel.Text = "Selecciona una carpeta para activar el servidor";
-        }
-
-        ApplyCurrentTheme();
-    }
-
     private void RefreshStatusView()
     {
         var running = _server is { IsRunning: true };
@@ -1093,8 +713,6 @@ internal sealed class MainForm : Form
 
         _bottomStateLabel.Text = running ? "DLNA activo" : "DLNA detenido";
         _bottomAddressLabel.Text = running && _server is not null ? _server.DescriptionUrl : "Sin direccion activa";
-        _serverLink.Text = _bottomAddressLabel.Text;
-
         if (_statusGrid.Columns.Count == 0)
         {
             return;
@@ -1121,13 +739,48 @@ internal sealed class MainForm : Form
 
     private string GetFolderSummary()
     {
-        var folders = GetValidMediaFolders();
-        return folders.Count switch
+        var configured = _settings.MediaFolders
+            .Where(folder => !string.IsNullOrWhiteSpace(folder))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var available = configured.Where(Directory.Exists).ToList();
+        if (configured.Count == 0)
         {
-            0 => "Sin carpeta seleccionada",
-            1 => folders[0],
-            _ => $"{folders.Count} carpetas compartidas"
+            return "Sin carpeta seleccionada";
+        }
+
+        if (available.Count == 0)
+        {
+            return configured.Count == 1
+                ? $"{configured[0]} (no disponible)"
+                : $"{configured.Count} carpetas no disponibles";
+        }
+
+        return available.Count switch
+        {
+            1 when configured.Count == 1 => available[0],
+            _ => $"{available.Count} de {configured.Count} carpetas disponibles"
         };
+    }
+
+    private bool TryPersistSettings()
+    {
+        try
+        {
+            SettingsService.Save(_settings);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log($"No se pudo guardar la configuracion: {ex.Message}");
+            MessageBox.Show(
+                this,
+                $"No se pudo guardar la configuracion.\n\n{ex.Message}",
+                "VibeDLNA",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
+            return false;
+        }
     }
 
     private string GetMediaFilterSummary()
@@ -1324,33 +977,6 @@ internal sealed class MainForm : Form
         return false;
     }
 
-    private void SyncOptionSwitches()
-    {
-        _autoStartServerSwitch.Checked = _settings.AutoStartServer;
-        _startWithWindowsSwitch.Checked = _settings.StartWithWindows;
-        _startMinimizedSwitch.Checked = _settings.StartMinimized;
-        _startMinimizedSwitch.Enabled = _settings.StartWithWindows;
-        _minimizeToTraySwitch.Checked = _settings.MinimizeToTray;
-    }
-
-    private void ConfigureToolbarButton(FlatIconButton button, FlatIconKind kind, string tooltip, Action action, bool accent = false)
-    {
-        button.IconKind = kind;
-        button.IsAccent = accent;
-        button.Margin = new Padding(0, 0, 8, 0);
-        button.Click += (_, _) => action();
-        _toolTip.SetToolTip(button, tooltip);
-    }
-
-    private void ConfigureToolbarButton(FlatIconButton button, FlatIconKind kind, string tooltip, Func<Task> action, bool accent = false)
-    {
-        button.IconKind = kind;
-        button.IsAccent = accent;
-        button.Margin = new Padding(0, 0, 8, 0);
-        button.Click += async (_, _) => await action();
-        _toolTip.SetToolTip(button, tooltip);
-    }
-
     private void ConfigureGrid(DataGridView grid)
     {
         grid.Dock = DockStyle.Fill;
@@ -1394,29 +1020,6 @@ internal sealed class MainForm : Form
         ConfigureLabel(label, text, 8.5f, FontStyle.Bold);
         label.Dock = DockStyle.Fill;
         label.TextAlign = ContentAlignment.MiddleLeft;
-        return label;
-    }
-
-    private static void ConfigureSwitch(ToggleSwitch toggleSwitch, string text)
-    {
-        toggleSwitch.Text = text;
-        toggleSwitch.Dock = DockStyle.Fill;
-        toggleSwitch.Margin = new Padding(0, 2, 0, 2);
-    }
-
-    private static Label CreateSectionTitle(string text)
-    {
-        var label = new Label();
-        ConfigureLabel(label, text, 12f, FontStyle.Bold);
-        label.Dock = DockStyle.Fill;
-        return label;
-    }
-
-    private static Label CreateCaption(string text)
-    {
-        var label = new Label();
-        ConfigureLabel(label, text, 8.5f, FontStyle.Regular, muted: true);
-        label.Dock = DockStyle.Fill;
         return label;
     }
 

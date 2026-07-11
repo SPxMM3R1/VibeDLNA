@@ -8,7 +8,20 @@ internal static class NetworkHelper
 {
     public static IPAddress GetLocalIPv4Address()
     {
-        var candidates = NetworkInterface.GetAllNetworkInterfaces()
+        var candidates = GetLocalIPv4Addresses();
+        if (candidates.Count > 0)
+        {
+            return candidates[0];
+        }
+
+        return Dns.GetHostEntry(Dns.GetHostName())
+            .AddressList
+            .FirstOrDefault(static address => address.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(address))
+            ?? IPAddress.Loopback;
+    }
+
+    public static IReadOnlyList<IPAddress> GetLocalIPv4Addresses() =>
+        NetworkInterface.GetAllNetworkInterfaces()
             .Where(static nic =>
                 nic.OperationalStatus == OperationalStatus.Up
                 && nic.NetworkInterfaceType is not NetworkInterfaceType.Loopback
@@ -30,16 +43,6 @@ internal static class NetworkHelper
                 }))
             .OrderByDescending(static item => item.HasGateway)
             .Select(static item => item.Address)
+            .Distinct()
             .ToList();
-
-        if (candidates.Count > 0)
-        {
-            return candidates[0];
-        }
-
-        return Dns.GetHostEntry(Dns.GetHostName())
-            .AddressList
-            .FirstOrDefault(static address => address.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(address))
-            ?? IPAddress.Loopback;
-    }
 }

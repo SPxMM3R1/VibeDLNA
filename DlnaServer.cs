@@ -24,6 +24,7 @@ internal sealed class DlnaServer : IDisposable
     private readonly List<FileSystemWatcher> _watchers = new();
     private IPAddress _localAddress = IPAddress.Loopback;
     private int _systemUpdateId = 1;
+    private long _lastRescanTimestamp;
 
     public event EventHandler<string>? Message;
 
@@ -75,7 +76,7 @@ internal sealed class DlnaServer : IDisposable
 
         _acceptLoopTask = Task.Run(() => AcceptLoopAsync(_cancellation.Token));
 
-        _ssdpServer = new SsdpServer(_uuid, () => DescriptionUrl);
+        _ssdpServer = new SsdpServer(_uuid, _localAddress, () => DescriptionUrl);
         _ssdpServer.Message += (_, message) => Message?.Invoke(this, message);
         try
         {
@@ -138,6 +139,14 @@ internal sealed class DlnaServer : IDisposable
 
     public void Rescan()
     {
+        var now = Environment.TickCount64;
+        var previous = Interlocked.Read(ref _lastRescanTimestamp);
+        if (now - previous < 500)
+        {
+            return;
+        }
+
+        Interlocked.Exchange(ref _lastRescanTimestamp, now);
         Interlocked.Increment(ref _systemUpdateId);
         Message?.Invoke(this, "Biblioteca DLNA actualizada.");
     }

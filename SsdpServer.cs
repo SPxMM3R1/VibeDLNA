@@ -9,6 +9,7 @@ internal sealed class SsdpServer : IDisposable
     private static readonly IPAddress MulticastAddress = IPAddress.Parse("239.255.255.250");
     private const int MulticastPort = 1900;
     private readonly string _uuid;
+    private readonly IPAddress _localAddress;
     private readonly Func<string> _locationFactory;
     private readonly string _serverHeader;
     private Socket? _socket;
@@ -18,9 +19,10 @@ internal sealed class SsdpServer : IDisposable
 
     public event EventHandler<string>? Message;
 
-    public SsdpServer(string uuid, Func<string> locationFactory)
+    public SsdpServer(string uuid, IPAddress localAddress, Func<string> locationFactory)
     {
         _uuid = uuid;
+        _localAddress = localAddress;
         _locationFactory = locationFactory;
         _serverHeader = $"Windows/{Environment.OSVersion.Version.Major}.{Environment.OSVersion.Version.Minor} UPnP/1.0 VibeDLNA/1.0";
     }
@@ -44,7 +46,8 @@ internal sealed class SsdpServer : IDisposable
         _socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
         _socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.Broadcast, true);
         _socket.Bind(new IPEndPoint(IPAddress.Any, MulticastPort));
-        _socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, new MulticastOption(MulticastAddress, IPAddress.Any));
+        _socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, new MulticastOption(MulticastAddress, _localAddress));
+        _socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastInterface, _localAddress.GetAddressBytes());
         _socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 4);
 
         _receiveTask = Task.Run(() => ReceiveLoopAsync(_cancellation.Token));

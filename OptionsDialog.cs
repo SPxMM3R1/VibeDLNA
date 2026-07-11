@@ -21,7 +21,6 @@ internal sealed class OptionsDialog : Form
 
     private Color DialogBackground => _palette.Window;
     private Color FieldBackground => _palette.Elevated;
-    private Color OptionBackground => _palette.IsDark ? Color.FromArgb(51, 40, 48) : DialogBackground;
 
     public OptionsDialog(AppSettings settings, AppPalette palette, Action rescanAction)
     {
@@ -135,9 +134,9 @@ internal sealed class OptionsDialog : Form
         folderActions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33));
         folderActions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 27));
         folderActions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40));
-        folderActions.Controls.Add(CreateTextCommand("+  Agregar", _palette.AccentAlt, AddFolder), 0, 0);
-        folderActions.Controls.Add(CreateTextCommand("-  Quitar", _palette.MutedText, RemoveSelectedFolder), 1, 0);
-        folderActions.Controls.Add(CreateTextCommand("*  Reescanear", _palette.Accent, _rescanAction), 2, 0);
+        folderActions.Controls.Add(CreateTextCommand("Agregar", _palette.AccentAlt, AddFolder), 0, 0);
+        folderActions.Controls.Add(CreateTextCommand("Quitar", _palette.MutedText, RemoveSelectedFolder), 1, 0);
+        folderActions.Controls.Add(CreateTextCommand("Reescanear", _palette.Accent, _rescanAction), 2, 0);
         panel.Controls.Add(folderActions, 0, 3);
 
         _deviceNameTextBox.Dock = DockStyle.Fill;
@@ -186,8 +185,8 @@ internal sealed class OptionsDialog : Form
             Padding = new Padding(0, 12, 0, 0),
             BackColor = DialogBackground
         };
-        footer.Controls.Add(CreateTextCommand("OK  Guardar", _palette.AccentAlt, SaveAndClose, fillParent: false));
-        footer.Controls.Add(CreateTextCommand("x  Cancelar", _palette.MutedText, () => DialogResult = DialogResult.Cancel, fillParent: false));
+        footer.Controls.Add(CreateTextCommand("Guardar", _palette.AccentAlt, SaveAndClose, fillParent: false));
+        footer.Controls.Add(CreateTextCommand("Cancelar", _palette.MutedText, () => DialogResult = DialogResult.Cancel, fillParent: false));
         return footer;
     }
 
@@ -197,7 +196,6 @@ internal sealed class OptionsDialog : Form
         {
             Text = text,
             Dock = DockStyle.Fill,
-            HostBackColor = OptionBackground,
             Checked = getValue(),
             Enabled = canUse?.Invoke() ?? true
         };
@@ -225,7 +223,7 @@ internal sealed class OptionsDialog : Form
             Dock = fillParent ? DockStyle.Fill : DockStyle.None,
             AutoSize = false,
             Size = fillParent ? Size.Empty : new Size(126, 28),
-            BackColor = DialogBackground,
+            BackColor = Color.Transparent,
             ForeColor = color,
             Font = new Font("Segoe UI", 9.5f, FontStyle.Regular),
             TextAlign = ContentAlignment.MiddleCenter,
@@ -244,7 +242,6 @@ internal sealed class OptionsDialog : Form
     {
         foreach (var line in _optionLines)
         {
-            line.HostBackColor = OptionBackground;
             line.Checked = line.GetValue();
             line.Enabled = line.CanUse?.Invoke() ?? true;
             line.ApplyPalette(_palette);
@@ -254,12 +251,13 @@ internal sealed class OptionsDialog : Form
     private void SaveAndClose()
     {
         var folders = _foldersList.Items.Cast<string>()
-            .Where(Directory.Exists)
+            .Where(folder => !string.IsNullOrWhiteSpace(folder))
+            .Select(folder => folder.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         if (folders.Count == 0)
         {
-            MessageBox.Show(this, "Agrega al menos una carpeta valida.", "VibeDLNA", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "Agrega al menos una carpeta.", "VibeDLNA", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -387,11 +385,11 @@ internal sealed class OptionsDialog : Form
         }
         else if (control is OptionLine optionLine)
         {
-            optionLine.HostBackColor = OptionBackground;
             optionLine.ApplyPalette(_palette);
         }
         else if (control is Label label && label.Tag is Color labelColor)
         {
+            label.BackColor = Color.Transparent;
             label.ForeColor = labelColor;
         }
 
@@ -444,42 +442,73 @@ internal sealed class OptionsDialog : Form
         public OptionLine(AppPalette palette)
         {
             _palette = palette;
-            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.UserPaint, true);
+            SetStyle(
+                ControlStyles.AllPaintingInWmPaint
+                | ControlStyles.OptimizedDoubleBuffer
+                | ControlStyles.ResizeRedraw
+                | ControlStyles.UserPaint
+                | ControlStyles.SupportsTransparentBackColor,
+                true);
             Height = 34;
             Cursor = Cursors.Hand;
             Font = new Font("Segoe UI", 9.5f, FontStyle.Regular);
             Margin = new Padding(0);
+            TabStop = true;
         }
 
         public Func<bool> GetValue { get; set; } = () => false;
         public Func<bool>? CanUse { get; set; }
         public bool Checked { get; set; }
-        public Color HostBackColor { get; set; }
 
         public void ApplyPalette(AppPalette palette)
         {
             _palette = palette;
-            BackColor = HostBackColor;
+            BackColor = Color.Transparent;
             ForeColor = palette.Text;
             Invalidate();
         }
 
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            base.OnPaintBackground(e);
+        }
+
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            if (e.KeyCode is Keys.Space or Keys.Enter)
+            {
+                OnClick(EventArgs.Empty);
+                e.Handled = true;
+            }
+
+            base.OnKeyDown(e);
+        }
+
         protected override void OnPaint(PaintEventArgs e)
         {
-            e.Graphics.Clear(HostBackColor);
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
             var enabled = Enabled;
             var accent = Checked ? _palette.AccentAlt : _palette.MutedText;
-            var glyph = Checked ? ">" : "-";
-            var glyphBounds = new Rectangle(0, 0, 44, Height);
-            var textBounds = new Rectangle(58, 0, Width - 58, Height);
+            using var pen = new Pen(enabled ? accent : _palette.MutedText, Checked ? 2.4f : 1.6f)
+            {
+                StartCap = System.Drawing.Drawing2D.LineCap.Round,
+                EndCap = System.Drawing.Drawing2D.LineCap.Round
+            };
+            if (Checked)
+            {
+                e.Graphics.DrawLines(pen, new[]
+                {
+                    new Point(13, Height / 2),
+                    new Point(18, Height / 2 + 5),
+                    new Point(28, Height / 2 - 6)
+                });
+            }
+            else
+            {
+                e.Graphics.DrawLine(pen, 14, Height / 2, 27, Height / 2);
+            }
 
-            TextRenderer.DrawText(
-                e.Graphics,
-                glyph,
-                new Font("Segoe UI", 17f, FontStyle.Bold),
-                glyphBounds,
-                enabled ? accent : _palette.MutedText,
-                TextFormatFlags.VerticalCenter | TextFormatFlags.HorizontalCenter);
+            var textBounds = new Rectangle(44, 0, Width - 44, Height);
             TextRenderer.DrawText(
                 e.Graphics,
                 Text,
