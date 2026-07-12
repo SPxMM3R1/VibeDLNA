@@ -17,6 +17,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\FolderDlnaServer.csproj" />
+    <ProjectReference Include="..\VibeDLNA.csproj" />
   </ItemGroup>
 </Project>

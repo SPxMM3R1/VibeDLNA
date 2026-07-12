@@ -8,7 +8,11 @@ $publishDirectory = Join-Path $projectRoot "artifacts\publish"
 $installerDirectory = Join-Path $projectRoot "artifacts\installer"
 
 dotnet test (Join-Path $projectRoot "VibeDLNA.Tests\VibeDLNA.Tests.csproj") -c Release
-dotnet publish (Join-Path $projectRoot "FolderDlnaServer.csproj") `
+if (Test-Path -LiteralPath $publishDirectory) {
+    Remove-Item -LiteralPath $publishDirectory -Recurse -Force
+}
+
+dotnet publish (Join-Path $projectRoot "VibeDLNA.csproj") `
     -c Release `
     -r win-x64 `
     --self-contained true `
