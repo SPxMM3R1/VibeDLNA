@@ -408,6 +408,7 @@ internal sealed class DlnaServer : IDisposable
         var headers = new Dictionary<string, string>
         {
             ["Accept-Ranges"] = "bytes",
+            ["Content-Disposition"] = BuildContentDisposition(fileInfo.Name),
             ["Last-Modified"] = fileInfo.LastWriteTimeUtc.ToString("R"),
             ["transferMode.dlna.org"] = "Streaming",
             ["contentFeatures.dlna.org"] = "DLNA.ORG_OP=01;DLNA.ORG_FLAGS=01700000000000000000000000000000"
@@ -499,6 +500,16 @@ internal sealed class DlnaServer : IDisposable
         builder.Append("\r\n");
         var bytes = Encoding.ASCII.GetBytes(builder.ToString());
         await stream.WriteAsync(bytes, cancellationToken);
+    }
+
+    internal static string BuildContentDisposition(string fileName)
+    {
+        var asciiName = new string(fileName.Select(character =>
+            character is >= ' ' and <= '~' && character is not '"' and not '\\'
+                ? character
+                : '_').ToArray());
+        var utf8Name = Uri.EscapeDataString(fileName);
+        return $"inline; filename=\"{asciiName}\"; filename*=UTF-8''{utf8Name}";
     }
 
     private static bool TryParseRange(string rangeHeader, long fileLength, out long start, out long end)

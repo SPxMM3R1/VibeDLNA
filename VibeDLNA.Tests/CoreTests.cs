@@ -81,6 +81,46 @@ public sealed class CoreTests : IDisposable
         Assert.Contains("urn:schemas-upnp-org:device:MediaServer:1", xml);
     }
 
+    [Fact]
+    public void ContentDispositionKeepsReadableSpacesAndProvidesUtf8Name()
+    {
+        var header = DlnaServer.BuildContentDisposition("video loco \u00f1.mp4");
+
+        Assert.Equal(
+            "inline; filename=\"video loco _.mp4\"; filename*=UTF-8''video%20loco%20%C3%B1.mp4",
+            header);
+    }
+
+    [Fact]
+    public async Task MediaResponseAnnouncesReadableFileName()
+    {
+        const string fileName = "video loco.mp4";
+        await File.WriteAllBytesAsync(Path.Combine(_root, fileName), new byte[] { 1, 2, 3 });
+        var library = new DlnaContentLibrary(new[] { _root }, true, false, false);
+        var entry = Assert.Single(library.GetChildren("R:0"), item => !item.IsDirectory);
+        using var server = new DlnaServer(
+            new[] { _root },
+            "VibeDLNA Test",
+            Guid.NewGuid().ToString("D"),
+            0,
+            true,
+            false,
+            false,
+            false,
+            false);
+        await server.StartAsync();
+
+        using var client = new HttpClient();
+        using var request = new HttpRequestMessage(
+            HttpMethod.Head,
+            $"{server.BaseUrl}/media/{Uri.EscapeDataString(entry.Id)}/{Uri.EscapeDataString(fileName)}");
+        using var response = await client.SendAsync(request);
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal("\"video loco.mp4\"", response.Content.Headers.ContentDisposition?.FileName);
+        Assert.Equal("video loco.mp4", response.Content.Headers.ContentDisposition?.FileNameStar);
+    }
+
     public void Dispose()
     {
         try
