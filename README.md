@@ -15,7 +15,11 @@ App de Windows para compartir carpetas como servidor DLNA/UPnP en la red local.
 5. Cambia entre modo claro y oscuro con el boton de sol/luna.
 6. Guarda opciones y pulsa **Iniciar**.
 
-## Ejecutable
+## Compilacion
+
+Cada cambio enviado a `main` se prueba y se compila automaticamente en GitHub Actions sobre Windows. El resultado queda disponible en la ejecucion del workflow como artefacto `VibeDLNA-windows`, con el ejecutable autocontenido y el instalador.
+
+Para compilar manualmente en una maquina Windows con .NET 8 instalado:
 
 Para crear una publicacion autocontenida de un solo archivo y ejecutar las pruebas:
 

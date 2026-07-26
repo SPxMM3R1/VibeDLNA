@@ -17,7 +17,7 @@
     <Product>VibeDLNA</Product>
     <Company>VibeDLNA</Company>
     <Description>Servidor DLNA para compartir carpetas en la red local.</Description>
-    <RepositoryUrl>https://gitlab.com/roberto.ramos.dz/folder-dlna-server</RepositoryUrl>
+    <RepositoryUrl>https://github.com/SPxMM3R/VibeDLNA</RepositoryUrl>
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <SelfContained>true</SelfContained>
