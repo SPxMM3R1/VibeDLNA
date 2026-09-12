@@ -31,10 +31,10 @@ El usuario trabaja en español y prefiere respuestas directas, honestas y con re
 - remoto origin: repositorio anterior de GitLab
 - rama actual: main
 - rama remota seguida por main: github/main
-- commit actual: 567d409 — Build VibeDLNA on GitHub Actions
+- commit de la entrega v1.0.1: 149a86c — Add thumbnail cache and GitHub updater
 - último commit visible en el remoto GitLab origin/main: 25f3fec — Send readable media filenames to DLNA clients
-- el árbol de trabajo contiene cambios locales no publicados para caché de miniaturas y actualizador, además de este contexto no versionado
-- no borrar ni revertir esos cambios sin revisarlos; pertenecen a la solicitud actual
+- el árbol de trabajo quedó limpio después de publicar la entrega v1.0.1
+- la funcionalidad de caché y actualizador está publicada en el commit 149a86c
 
 La carpeta mockups/, que contenía 12 PNG y prompts de diseño, fue retirada el 2026-09-11 y enviada a la Papelera de reciclaje. No forma parte del producto ni del código de compilación. No recrearla ni volver a añadirla al repositorio salvo que el usuario lo pida.
 
@@ -235,7 +235,7 @@ El artefacto esperado contiene:
 - artifacts/release/VibeDLNA-windows.zip
 - artifacts/release/VibeDLNA-windows.zip.sha256
 
-Al 2026-09-11 el repositorio GitHub todavía no tiene releases ni etiquetas publicadas. Por eso la sección Actualizaciones puede mostrar que no hay una release disponible hasta que se publique la primera etiqueta `v...` mediante GitHub Actions.
+La release pública `v1.0.1` quedó publicada el 2026-09-11 desde el commit 149a86c. Incluye el instalador, el ZIP portable y el checksum; la sección Actualizaciones ya puede detectar una versión posterior desde la API pública de GitHub.
 
 El script local build-release.ps1 existe para diagnóstico y es el mismo flujo usado por GitHub. No subir bin, obj, publish ni artifacts al repositorio. Esas salidas son regenerables y están ignoradas por .gitignore.
 
@@ -256,7 +256,7 @@ El proyecto de pruebas usa xUnit y cubre, entre otros:
 - reutilización de caché por checksum de contenido y anuncio DIDL de miniaturas;
 - análisis de etiquetas de versión del actualizador.
 
-En esta modificación se ejecutaron 13 pruebas locales y pasaron todas. También se ejecutó `.\build-release.ps1 -Version v1.0.1`: generó correctamente el ejecutable autocontenido, `VibeDLNA-Setup-1.0.1.exe`, `VibeDLNA-windows.zip` y su SHA-256. La validación de GitHub Actions todavía queda pendiente porque los cambios no se han enviado al remoto.
+En esta modificación se ejecutaron 14 pruebas locales y pasaron todas. También se ejecutó `.\build-release.ps1 -Version v1.0.1`: generó correctamente el ejecutable autocontenido, `VibeDLNA-Setup-1.0.1.exe`, `VibeDLNA-windows.zip` y su SHA-256. GitHub Actions ejecutó el run `34661321452` con build correcto y el job release `103464691666`; la release y sus tres assets fueron verificados en GitHub.
 No se probó aún la extracción de un fotograma con un video real de cada formato ni la reproducción de la miniatura en una TV física. La generación real depende del proveedor de miniaturas/codecs instalados en Windows; el fallback sí está contemplado por código.
 
 ## pendientes y riesgos conocidos
@@ -267,7 +267,7 @@ No se probó aún la extracción de un fotograma con un video real de cada forma
 4. Mantener la compilación de entrega en GitHub Actions.
 5. Mejorar la documentación de instalación y diagnóstico de red.
 6. Si se decide migrar a WinUI 3, separar el trabajo en shell visual, opciones, bandeja, temas, empaquetado y validación; no reescribir el backend DLNA sin necesidad.
-7. Publicar una primera etiqueta `v1.0.1` o superior cuando el usuario autorice la entrega, y verificar el workflow, la Release, los assets y la consulta real del actualizador.
+7. Para la siguiente entrega, publicar una nueva etiqueta `v1.0.2` o superior y repetir la verificación de workflow, Release, assets y consulta real del actualizador.
 8. Probar la caché y `albumArtURI` contra los modelos de TV/reproductor DLNA de uso real.
 
 ## reglas para futuros agentes
@@ -301,4 +301,4 @@ Desde D:\Users\SP4MM3R\Documents\Codex\VibeDLNA:
 
 ## estado de cierre de este contexto
 
-La limpieza del 2026-09-11 retiró únicamente los mockups generados que no eran necesarios para compilar. El código, la configuración, las pruebas, los recursos, el instalador, el workflow y el historial Git permanecen intactos; los cambios locales actuales agregan caché de miniaturas y actualización desde GitHub. Este archivo en minúsculas es el contexto vigente y sustituye al archivo de nombre mayúsculo.
+La limpieza del 2026-09-11 retiró únicamente los mockups generados que no eran necesarios para compilar. La entrega v1.0.1 agregó caché de miniaturas y actualización desde GitHub, fue compilada por Actions y quedó publicada con instalador, ZIP y checksum. Este archivo en minúsculas es el contexto vigente y sustituye al archivo de nombre mayúsculo.
