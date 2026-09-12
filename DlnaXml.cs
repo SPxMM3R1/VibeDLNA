@@ -196,7 +196,7 @@ internal static class DlnaXml
                 if (thumbnailCache is not null
                     && MediaTypes.TryGet(entry.FullPath, out var mediaType)
                     && mediaType.Kind == MediaKind.Video
-                    && thumbnailCache.GetOrCreate(entry.FullPath) is { } thumbnailKey)
+                    && thumbnailCache.TryGetCached(entry.FullPath) is { } thumbnailKey)
                 {
                     item.Add(new XElement(
                         upnp + "albumArtURI",

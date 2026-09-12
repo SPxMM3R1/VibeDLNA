@@ -127,6 +127,39 @@ internal sealed class ThumbnailCache
         return true;
     }
 
+    /// <summary>
+    /// Returns a thumbnail that is already indexed and ready without hashing
+    /// or rendering the source video on the request thread.
+    /// </summary>
+    public string? TryGetCached(string filePath)
+    {
+        string fullPath;
+        try
+        {
+            fullPath = Path.GetFullPath(filePath);
+            if (!IsVideo(fullPath) || !File.Exists(fullPath))
+            {
+                return null;
+            }
+
+            var fileInfo = new FileInfo(fullPath);
+            if (!_knownChecksums.TryGetValue(fullPath, out var knownChecksum)
+                || knownChecksum.Length != fileInfo.Length
+                || knownChecksum.LastWriteUtcTicks != fileInfo.LastWriteTimeUtc.Ticks)
+            {
+                return null;
+            }
+
+            return IsUsableFile(GetCachePath(knownChecksum.Checksum))
+                ? knownChecksum.Checksum
+                : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     internal string GetCachePathForTesting(string checksum) => GetCachePath(checksum);
 
     internal static string ComputeChecksum(string filePath)

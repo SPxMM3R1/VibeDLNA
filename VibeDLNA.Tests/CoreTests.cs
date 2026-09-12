@@ -105,11 +105,28 @@ public sealed class CoreTests : IDisposable
         var cache = new ThumbnailCache(Path.Combine(_root, "thumbnails"));
         var checksum = ThumbnailCache.ComputeChecksum(videoPath);
         File.WriteAllBytes(cache.GetCachePathForTesting(checksum), new byte[] { 1, 2, 3 });
+        Assert.Equal(checksum, cache.GetOrCreate(videoPath));
 
         var didl = DlnaXml.BuildDidl(new[] { entry }, "http://127.0.0.1:1234", cache);
 
         Assert.Contains("albumArtURI", didl);
         Assert.Contains($"/thumbnail/{checksum}.jpg", didl);
+    }
+
+    [Fact]
+    public void DidlDoesNotBuildThumbnailDuringBrowse()
+    {
+        var videoPath = Path.Combine(_root, "uncached.mp4");
+        File.WriteAllBytes(videoPath, new byte[] { 10, 20, 30 });
+        var library = new DlnaContentLibrary(new[] { _root }, true, false, false);
+        var entry = Assert.Single(library.GetChildren("R:0"), item => !item.IsDirectory);
+        var cachePath = Path.Combine(_root, "thumbnails");
+        var cache = new ThumbnailCache(cachePath);
+
+        var didl = DlnaXml.BuildDidl(new[] { entry }, "http://127.0.0.1:1234", cache);
+
+        Assert.DoesNotContain("albumArtURI", didl);
+        Assert.Empty(Directory.EnumerateFiles(cachePath));
     }
 
     [Fact]
