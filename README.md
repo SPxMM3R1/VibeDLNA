@@ -29,6 +29,14 @@ Para crear una publicacion autocontenida de un solo archivo y ejecutar las prueb
 
 El ejecutable queda en `artifacts\publish\VibeDLNA.exe`. Si Inno Setup 6 esta instalado, el mismo comando genera `artifacts\installer\VibeDLNA-Setup-1.0.0.exe`.
 
+Para preparar una release versionada, usa una etiqueta con formato `vMAJOR.MINOR.PATCH`:
+
+```powershell
+.\build-release.ps1 -Version "v1.0.1"
+```
+
+El comando tambien genera `artifacts\release\VibeDLNA-windows.zip` y su archivo `.sha256`. En GitHub, el workflow publica esos paquetes automaticamente cuando se envia una etiqueta `v...` al repositorio.
+
 La firma Authenticode es opcional y requiere un certificado instalado:
 
 ```powershell
@@ -40,6 +48,8 @@ La firma Authenticode es opcional y requiere un certificado instalado:
 - La primera vez, Windows puede pedir permiso de firewall. Permite acceso en red privada para que la TV lo encuentre.
 - La app anuncia el servidor por DLNA/UPnP y sirve video, musica e imagenes comunes.
 - No convierte ni transcodifica archivos: el reproductor debe soportar el formato y codec del archivo original.
+- Las miniaturas de video se construyen y conservan en `%LOCALAPPDATA%\VibeDLNA\ThumbnailCache`. El nombre del archivo usa el SHA-256 del contenido completo, por lo que un video duplicado, renombrado o movido a otra carpeta reutiliza la misma miniatura. Windows genera el fotograma cuando tiene un proveedor de miniaturas disponible; si no, la app conserva una imagen de respaldo para que el cliente DLNA siempre tenga un recurso anunciado.
+- En **Opciones > Actualizaciones**, la app consulta la ultima release publica de `SPxMM3R1/VibeDLNA`. Si encuentra una version superior, descarga el ZIP publicado, comprueba su tamano y SHA-256 cuando GitHub lo proporciona, reemplaza el ejecutable al cerrar y vuelve a abrir VibeDLNA. Si se distribuye una release sin ZIP, tambien puede iniciar el instalador `VibeDLNA-Setup-*.exe`.
 - El registro de actividad persistente queda en `%APPDATA%\VibeDLNA\VibeDLNA.log`.
 - El icono de la ventana, barra de tareas y bandeja usa la identidad visual oscura de VibeDLNA.
 - En Windows 11 compatible, la ventana activa Mica automaticamente. En otras versiones usa el fondo propio de la app.

@@ -28,6 +28,7 @@ internal sealed class MainForm : Form
     private readonly Label _sidebarWindowsLabel = new();
     private readonly Label _bottomAddressLabel = new();
     private readonly Label _bottomStateLabel = new();
+    private readonly GitHubUpdateService _updateService = new();
 
     private AppSettings _settings = new();
     private AppPalette _palette = AppPalette.Dark;
@@ -523,8 +524,15 @@ internal sealed class MainForm : Form
 
     private void OpenOptionsDialog()
     {
-        using var dialog = new OptionsDialog(_settings, _palette, RescanLibrary);
-        if (dialog.ShowDialog(this) != DialogResult.OK)
+        using var dialog = new OptionsDialog(_settings, _palette, RescanLibrary, _updateService);
+        var result = dialog.ShowDialog(this);
+        if (result == DialogResult.Abort)
+        {
+            BeginInvoke(async () => await ExitApplicationAsync());
+            return;
+        }
+
+        if (result != DialogResult.OK)
         {
             return;
         }

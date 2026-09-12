@@ -73,6 +73,87 @@ public sealed class CoreTests : IDisposable
     }
 
     [Fact]
+    public void ThumbnailCacheReusesContentChecksumAcrossDifferentPaths()
+    {
+        var firstDirectory = Path.Combine(_root, "first");
+        var secondDirectory = Path.Combine(_root, "second");
+        Directory.CreateDirectory(firstDirectory);
+        Directory.CreateDirectory(secondDirectory);
+        var firstVideo = Path.Combine(firstDirectory, "video.mp4");
+        var secondVideo = Path.Combine(secondDirectory, "renamed.mp4");
+        var content = new byte[] { 1, 2, 3, 4, 5, 6 };
+        File.WriteAllBytes(firstVideo, content);
+        File.WriteAllBytes(secondVideo, content);
+
+        var firstChecksum = ThumbnailCache.ComputeChecksum(firstVideo);
+        var secondChecksum = ThumbnailCache.ComputeChecksum(secondVideo);
+        var cache = new ThumbnailCache(Path.Combine(_root, "thumbnails"));
+        File.WriteAllBytes(cache.GetCachePathForTesting(firstChecksum), new byte[] { 9, 8, 7 });
+
+        Assert.Equal(firstChecksum, secondChecksum);
+        Assert.Equal(firstChecksum, cache.GetOrCreate(secondVideo));
+        Assert.True(cache.TryGetPath(secondChecksum, out _));
+    }
+
+    [Fact]
+    public void DidlAdvertisesCachedVideoThumbnail()
+    {
+        var videoPath = Path.Combine(_root, "clip.mp4");
+        File.WriteAllBytes(videoPath, new byte[] { 10, 20, 30 });
+        var library = new DlnaContentLibrary(new[] { _root }, true, false, false);
+        var entry = Assert.Single(library.GetChildren("R:0"), item => !item.IsDirectory);
+        var cache = new ThumbnailCache(Path.Combine(_root, "thumbnails"));
+        var checksum = ThumbnailCache.ComputeChecksum(videoPath);
+        File.WriteAllBytes(cache.GetCachePathForTesting(checksum), new byte[] { 1, 2, 3 });
+
+        var didl = DlnaXml.BuildDidl(new[] { entry }, "http://127.0.0.1:1234", cache);
+
+        Assert.Contains("albumArtURI", didl);
+        Assert.Contains($"/thumbnail/{checksum}.jpg", didl);
+    }
+
+    [Fact]
+    public async Task ThumbnailResponseServesCachedResource()
+    {
+        var videoPath = Path.Combine(_root, "clip.mp4");
+        File.WriteAllBytes(videoPath, new byte[] { 10, 20, 30 });
+        var cache = new ThumbnailCache(Path.Combine(_root, "thumbnails"));
+        var checksum = ThumbnailCache.ComputeChecksum(videoPath);
+        File.WriteAllBytes(cache.GetCachePathForTesting(checksum), new byte[] { 1, 2, 3 });
+        using var server = new DlnaServer(
+            new[] { _root },
+            "VibeDLNA Test",
+            Guid.NewGuid().ToString("D"),
+            0,
+            true,
+            false,
+            false,
+            false,
+            false,
+            cache);
+        await server.StartAsync();
+
+        using var client = new HttpClient();
+        using var request = new HttpRequestMessage(
+            HttpMethod.Head,
+            $"{server.BaseUrl}/thumbnail/{checksum}.jpg");
+        using var response = await client.SendAsync(request);
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal("image/jpeg", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(3, response.Content.Headers.ContentLength);
+    }
+
+   [Theory]
+    [InlineData("v1.2.3", "1.2.3")]
+    [InlineData("1.4.0-beta", "1.4.0")]
+    public void UpdateServiceParsesReleaseVersions(string tagName, string expected)
+    {
+        Assert.True(GitHubUpdateService.TryParseVersion(tagName, out var version));
+        Assert.Equal(expected, version.ToString());
+    }
+
+    [Fact]
     public void DeviceDescriptionEscapesFriendlyName()
     {
         var xml = DlnaXml.DeviceDescription("TV & Sala <1>", Guid.NewGuid().ToString("D"));

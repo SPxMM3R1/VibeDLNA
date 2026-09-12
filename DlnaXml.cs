@@ -153,7 +153,10 @@ internal static class DlnaXml
         </scpd>
         """;
 
-    public static string BuildDidl(IEnumerable<DlnaEntry> entries, string baseUrl)
+    public static string BuildDidl(
+        IEnumerable<DlnaEntry> entries,
+        string baseUrl,
+        ThumbnailCache? thumbnailCache = null)
     {
         XNamespace didl = "urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/";
         XNamespace dc = "http://purl.org/dc/elements/1.1/";
@@ -179,7 +182,7 @@ internal static class DlnaXml
             else
             {
                 var mediaUrl = $"{baseUrl}/media/{Uri.EscapeDataString(entry.Id)}/{Uri.EscapeDataString(Path.GetFileName(entry.FullPath))}";
-                root.Add(new XElement(didl + "item",
+                var item = new XElement(didl + "item",
                     new XAttribute("id", entry.Id),
                     new XAttribute("parentID", entry.ParentId),
                     new XAttribute("restricted", "1"),
@@ -188,7 +191,19 @@ internal static class DlnaXml
                     new XElement(didl + "res",
                         new XAttribute("protocolInfo", MediaTypes.GetProtocolInfo(entry.MimeType)),
                         new XAttribute("size", entry.Size),
-                        mediaUrl)));
+                        mediaUrl));
+
+                if (thumbnailCache is not null
+                    && MediaTypes.TryGet(entry.FullPath, out var mediaType)
+                    && mediaType.Kind == MediaKind.Video
+                    && thumbnailCache.GetOrCreate(entry.FullPath) is { } thumbnailKey)
+                {
+                    item.Add(new XElement(
+                        upnp + "albumArtURI",
+                        $"{baseUrl}/thumbnail/{thumbnailKey}.jpg"));
+                }
+
+                root.Add(item);
             }
         }
 

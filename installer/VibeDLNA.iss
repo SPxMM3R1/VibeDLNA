@@ -1,5 +1,7 @@
 #define MyAppName "VibeDLNA"
+#ifndef MyAppVersion
 #define MyAppVersion "1.0.0"
+#endif
 #define MyAppPublisher "VibeDLNA"
 #define MyAppExeName "VibeDLNA.exe"
 

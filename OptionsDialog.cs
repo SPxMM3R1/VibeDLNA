@@ -5,9 +5,13 @@ internal sealed class OptionsDialog : Form
     private readonly AppSettings _settings;
     private readonly AppPalette _palette;
     private readonly Action _rescanAction;
+    private readonly GitHubUpdateService _updateService;
     private readonly ListBox _foldersList = new();
     private readonly TextBox _deviceNameTextBox = new();
     private readonly List<OptionLine> _optionLines = new();
+    private readonly Label _updateStatusLabel = new();
+    private readonly Label _updateActionLabel = new();
+    private readonly CancellationTokenSource _updateLifetime = new();
 
     private bool _shareVideos;
     private bool _shareAudio;
@@ -18,15 +22,22 @@ internal sealed class OptionsDialog : Form
     private bool _startWithWindows;
     private bool _startMinimized;
     private bool _minimizeToTray;
+    private GitHubReleaseInfo? _availableUpdate;
+    private bool _updateBusy;
 
     private Color DialogBackground => _palette.Window;
     private Color FieldBackground => _palette.Elevated;
 
-    public OptionsDialog(AppSettings settings, AppPalette palette, Action rescanAction)
+    public OptionsDialog(
+        AppSettings settings,
+        AppPalette palette,
+        Action rescanAction,
+        GitHubUpdateService updateService)
     {
         _settings = Clone(settings);
         _palette = palette;
         _rescanAction = rescanAction;
+        _updateService = updateService;
 
         _shareVideos = _settings.ShareVideos;
         _shareAudio = _settings.ShareAudio;
@@ -52,9 +63,22 @@ internal sealed class OptionsDialog : Form
         BuildUi();
         ApplyPalette(this);
         RefreshOptionLines();
+        Shown += async (_, _) => await CheckForUpdatesAsync();
+        FormClosed += (_, _) => _updateLifetime.Cancel();
     }
 
     public AppSettings Settings => _settings;
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _updateLifetime.Cancel();
+            _updateLifetime.Dispose();
+        }
+
+        base.Dispose(disposing);
+    }
 
     private void BuildUi()
     {
@@ -153,13 +177,15 @@ internal sealed class OptionsDialog : Form
 
     private Control BuildBehaviorPanel()
     {
-        var panel = CreatePanel(7);
+        var panel = CreatePanel(9);
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
         panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
         panel.Controls.Add(CreateHeader("Comportamiento"), 0, 0);
@@ -172,6 +198,48 @@ internal sealed class OptionsDialog : Form
         }), 0, 3);
         panel.Controls.Add(CreateOption("Abrir minimizada", () => _startMinimized, value => _startMinimized = value, () => _startWithWindows), 0, 4);
         panel.Controls.Add(CreateOption("Cerrar a bandeja", () => _minimizeToTray, value => _minimizeToTray = value), 0, 5);
+        panel.Controls.Add(CreateHeader("Actualizaciones"), 0, 6);
+        panel.Controls.Add(BuildUpdatePanel(), 0, 7);
+        return panel;
+    }
+
+    private Control BuildUpdatePanel()
+    {
+        var panel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            Margin = new Padding(0),
+            BackColor = DialogBackground
+        };
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 72));
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 28));
+
+        _updateStatusLabel.Text = $"Versión instalada: v{_updateService.CurrentVersion}";
+        _updateStatusLabel.Dock = DockStyle.Fill;
+        _updateStatusLabel.AutoEllipsis = true;
+        _updateStatusLabel.TextAlign = ContentAlignment.MiddleLeft;
+        _updateStatusLabel.Font = new Font("Segoe UI", 8.5f);
+        _updateStatusLabel.Margin = new Padding(0);
+
+        _updateActionLabel.Text = "Buscar";
+        _updateActionLabel.Dock = DockStyle.Fill;
+        _updateActionLabel.AutoSize = false;
+        _updateActionLabel.BackColor = Color.Transparent;
+        _updateActionLabel.ForeColor = _palette.AccentAlt;
+        _updateActionLabel.Font = new Font("Segoe UI", 9.5f);
+        _updateActionLabel.TextAlign = ContentAlignment.MiddleCenter;
+        _updateActionLabel.Cursor = Cursors.Hand;
+        _updateActionLabel.Tag = _palette.AccentAlt;
+        _updateActionLabel.Margin = new Padding(0);
+        _updateActionLabel.Click += async (_, _) => await HandleUpdateActionAsync();
+        _updateActionLabel.MouseDown += (_, _) => _updateActionLabel.ForeColor = Blend(_palette.AccentAlt, _palette.Text, 0.35f);
+        _updateActionLabel.MouseUp += (_, _) => _updateActionLabel.ForeColor = _palette.AccentAlt;
+        _updateActionLabel.MouseLeave += (_, _) => _updateActionLabel.ForeColor = _palette.AccentAlt;
+
+        panel.Controls.Add(_updateStatusLabel, 0, 0);
+        panel.Controls.Add(_updateActionLabel, 1, 0);
         return panel;
     }
 
@@ -306,6 +374,118 @@ internal sealed class OptionsDialog : Form
         if (_foldersList.SelectedIndex >= 0)
         {
             _foldersList.Items.RemoveAt(_foldersList.SelectedIndex);
+        }
+    }
+
+    private async Task HandleUpdateActionAsync()
+    {
+        if (_updateBusy)
+        {
+            return;
+        }
+
+        if (_availableUpdate is not null)
+        {
+            await InstallUpdateAsync(_availableUpdate);
+            return;
+        }
+
+        await CheckForUpdatesAsync();
+    }
+
+    private async Task CheckForUpdatesAsync()
+    {
+        if (_updateBusy)
+        {
+            return;
+        }
+
+        _updateBusy = true;
+        _availableUpdate = null;
+        _updateActionLabel.Enabled = false;
+        _updateActionLabel.Text = "Buscando...";
+        _updateStatusLabel.Text = "Comprobando actualizaciones en GitHub...";
+
+        try
+        {
+            var result = await _updateService.CheckAsync(_updateLifetime.Token);
+            if (IsDisposed || Disposing)
+            {
+                return;
+            }
+
+            _availableUpdate = result.State == UpdateCheckState.Available
+                ? result.Release
+                : null;
+            _updateStatusLabel.Text = result.Message;
+            _updateActionLabel.Text = result.State == UpdateCheckState.Available
+                ? "Actualizar"
+                : "Buscar de nuevo";
+        }
+        catch (OperationCanceledException)
+        {
+            // Closing the dialog cancels an in-flight request.
+        }
+        catch
+        {
+            if (!IsDisposed && !Disposing)
+            {
+                _updateStatusLabel.Text = "No se pudo consultar GitHub en este momento.";
+                _updateActionLabel.Text = "Buscar de nuevo";
+            }
+        }
+        finally
+        {
+            if (!IsDisposed && !Disposing)
+            {
+                _updateBusy = false;
+                _updateActionLabel.Enabled = true;
+            }
+        }
+    }
+
+    private async Task InstallUpdateAsync(GitHubReleaseInfo release)
+    {
+        if (_updateBusy)
+        {
+            return;
+        }
+
+        _updateBusy = true;
+        _updateActionLabel.Enabled = false;
+        _updateActionLabel.Text = "Descargando...";
+        _updateStatusLabel.Text = $"Descargando v{release.Version} desde GitHub...";
+
+        try
+        {
+            var result = await _updateService.DownloadAndStartAsync(release, _updateLifetime.Token);
+            if (result.Started)
+            {
+                _updateStatusLabel.Text = result.Message;
+                DialogResult = DialogResult.Abort;
+                return;
+            }
+
+            _updateStatusLabel.Text = result.Message;
+            _updateActionLabel.Text = "Reintentar";
+        }
+        catch (OperationCanceledException)
+        {
+            _updateStatusLabel.Text = "Actualización cancelada.";
+            _updateActionLabel.Text = "Reintentar";
+        }
+        catch
+        {
+            _updateStatusLabel.Text = "No se pudo preparar la actualización.";
+            _updateActionLabel.Text = "Reintentar";
+        }
+        finally
+        {
+            if (!IsDisposed && !Disposing)
+            {
+                _updateBusy = false;
+                _updateActionLabel.Enabled = true;
+            }
         }
     }
 

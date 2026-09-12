@@ -16,10 +16,12 @@ internal sealed class DlnaServer : IDisposable
     private readonly bool _shareImages;
     private readonly bool _autoRescan;
     private readonly bool _keepAwake;
+    private readonly ThumbnailCache _thumbnailCache;
     private DlnaContentLibrary? _library;
     private TcpListener? _listener;
     private CancellationTokenSource? _cancellation;
     private Task? _acceptLoopTask;
+    private Task? _thumbnailWarmupTask;
     private SsdpServer? _ssdpServer;
     private readonly List<FileSystemWatcher> _watchers = new();
     private IPAddress _localAddress = IPAddress.Loopback;
@@ -37,7 +39,8 @@ internal sealed class DlnaServer : IDisposable
         bool shareAudio,
         bool shareImages,
         bool autoRescan,
-        bool keepAwake)
+        bool keepAwake,
+        ThumbnailCache? thumbnailCache = null)
     {
         _mediaFolders = mediaFolders.Where(Directory.Exists).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         _friendlyName = friendlyName;
@@ -48,6 +51,7 @@ internal sealed class DlnaServer : IDisposable
         _shareImages = shareImages;
         _autoRescan = autoRescan;
         _keepAwake = keepAwake;
+        _thumbnailCache = thumbnailCache ?? new ThumbnailCache();
     }
 
     public bool IsRunning => _listener is not null;
@@ -73,6 +77,7 @@ internal sealed class DlnaServer : IDisposable
         Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
         PowerKeepAwake.SetEnabled(_keepAwake);
         StartWatchers();
+        _thumbnailWarmupTask = _thumbnailCache.WarmAsync(_mediaFolders, _cancellation.Token);
 
         _acceptLoopTask = Task.Run(() => AcceptLoopAsync(_cancellation.Token));
 
@@ -148,6 +153,12 @@ internal sealed class DlnaServer : IDisposable
 
         Interlocked.Exchange(ref _lastRescanTimestamp, now);
         Interlocked.Increment(ref _systemUpdateId);
+        _thumbnailCache.Invalidate();
+        if (_cancellation is not null && _library is not null)
+        {
+            _thumbnailWarmupTask = _thumbnailCache.WarmAsync(_mediaFolders, _cancellation.Token);
+        }
+
         Message?.Invoke(this, "Biblioteca DLNA actualizada.");
     }
 
@@ -250,6 +261,12 @@ internal sealed class DlnaServer : IDisposable
                 return;
             }
 
+            if (path.StartsWith("/thumbnail/", StringComparison.OrdinalIgnoreCase))
+            {
+                await WriteThumbnailAsync(request, stream, path, cancellationToken);
+                return;
+            }
+
             if (path.StartsWith("/media/", StringComparison.OrdinalIgnoreCase))
             {
                 await WriteMediaAsync(request, stream, path, cancellationToken);
@@ -295,7 +312,7 @@ internal sealed class DlnaServer : IDisposable
                     ? entries.Skip((int)startingIndex).ToArray()
                     : entries.Skip((int)startingIndex).Take((int)requestedCount).ToArray();
 
-                var didl = DlnaXml.BuildDidl(pagedEntries, BaseUrl);
+                var didl = DlnaXml.BuildDidl(pagedEntries, BaseUrl, _thumbnailCache);
                 response = DlnaXml.SoapResponse(
                     DlnaXml.ContentDirectoryServiceType,
                     "Browse",
@@ -448,6 +465,65 @@ internal sealed class DlnaServer : IDisposable
             await stream.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
             remaining -= read;
         }
+    }
+
+    private async Task WriteThumbnailAsync(
+        HttpRequestData request,
+        Stream stream,
+        string path,
+        CancellationToken cancellationToken)
+    {
+        var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var isValidPath = segments.Length == 2
+            && segments[1].EndsWith(".jpg", StringComparison.OrdinalIgnoreCase);
+        var checksum = isValidPath
+            ? Path.GetFileNameWithoutExtension(segments[1])
+            : string.Empty;
+
+        if (!isValidPath
+            || !_thumbnailCache.TryGetPath(checksum, out var thumbnailPath))
+        {
+            await WriteResponseAsync(
+                stream,
+                404,
+                "Not Found",
+                "text/plain",
+                Encoding.UTF8.GetBytes("Not found"),
+                request.Method,
+                cancellationToken);
+            return;
+        }
+
+        var fileInfo = new FileInfo(thumbnailPath);
+        var headers = new Dictionary<string, string>
+        {
+            ["Cache-Control"] = "public, max-age=31536000, immutable",
+            ["Content-Disposition"] = "inline; filename=\"thumbnail.jpg\"",
+            ["Last-Modified"] = fileInfo.LastWriteTimeUtc.ToString("R")
+        };
+
+        await WriteHeaderAsync(
+            stream,
+            200,
+            "OK",
+            "image/jpeg",
+            fileInfo.Length,
+            headers,
+            cancellationToken);
+
+        if (request.Method.Equals("HEAD", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        await using var fileStream = new FileStream(
+            thumbnailPath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite,
+            1024 * 16,
+            useAsync: true);
+        await fileStream.CopyToAsync(stream, cancellationToken);
     }
 
     private async Task WriteResponseAsync(
