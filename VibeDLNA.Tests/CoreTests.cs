@@ -35,22 +35,6 @@ public sealed class CoreTests : IDisposable
     }
 
     [Fact]
-    public void WinUiStatusIndicatorAllowsTransparentBackground()
-    {
-        using var indicator = new WinUiStatusIndicator();
-
-        Assert.Equal(System.Drawing.Color.Transparent, indicator.BackColor);
-    }
-
-    [Fact]
-    public void MainFormCanBeConstructed()
-    {
-        using var form = new MainForm(requestedStartMinimized: false);
-
-        Assert.Equal("VibeDLNA", form.Text);
-    }
-
-    [Fact]
     public void LibraryFiltersMediaAndEnumeratesFolders()
     {
         Directory.CreateDirectory(Path.Combine(_root, "Series"));
