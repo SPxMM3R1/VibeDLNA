@@ -215,6 +215,47 @@ public sealed class CoreTests : IDisposable
     }
 
     [Fact]
+    public async Task RescanPreservesReadyThumbnailWhileWarmupRestarts()
+    {
+        var videoPath = Path.Combine(_root, "rescan.mp4");
+        File.WriteAllBytes(videoPath, new byte[] { 10, 20, 30 });
+        var provider = new BlockingThumbnailProvider();
+        var cache = new ThumbnailCache(Path.Combine(_root, "thumbnails"), provider);
+        using var server = new DlnaServer(
+            new[] { _root },
+            "VibeDLNA Test",
+            Guid.NewGuid().ToString("D"),
+            0,
+            true,
+            false,
+            false,
+            false,
+            false,
+            cache);
+
+        await server.StartAsync();
+        await server.ThumbnailWarmupTask;
+        var checksum = cache.TryGetCached(videoPath);
+        Assert.NotNull(checksum);
+        provider.BlockAdditionalCalls = true;
+
+        try
+        {
+            server.Rescan();
+
+            Assert.Equal(checksum, cache.TryGetCached(videoPath));
+        }
+        finally
+        {
+            provider.BlockAdditionalCalls = false;
+        }
+
+        await server.ThumbnailWarmupTask;
+        Assert.Equal(1, provider.Calls);
+        await server.StopAsync();
+    }
+
+    [Fact]
     public async Task ThumbnailWarmupCoversAllConfiguredFoldersAndSupportedMedia()
     {
         var secondRoot = Path.Combine(_root, "second-root");
@@ -370,6 +411,41 @@ public sealed class CoreTests : IDisposable
         public bool TrySave(string sourcePath, string targetPath)
         {
             Interlocked.Increment(ref _calls);
+            File.WriteAllBytes(targetPath, new byte[] { 0xFF, 0xD8, 0xFF, 0xD9 });
+            return true;
+        }
+    }
+
+    private sealed class BlockingThumbnailProvider : IThumbnailProvider
+    {
+        private readonly ManualResetEventSlim _continue = new(true);
+        private int _calls;
+
+        public int Calls => Volatile.Read(ref _calls);
+
+        public bool BlockAdditionalCalls
+        {
+            set
+            {
+                if (value)
+                {
+                    _continue.Reset();
+                }
+                else
+                {
+                    _continue.Set();
+                }
+            }
+        }
+
+        public bool TrySave(string sourcePath, string targetPath)
+        {
+            var call = Interlocked.Increment(ref _calls);
+            if (call > 1)
+            {
+                _continue.Wait();
+            }
+
             File.WriteAllBytes(targetPath, new byte[] { 0xFF, 0xD8, 0xFF, 0xD9 });
             return true;
         }

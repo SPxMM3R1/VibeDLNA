@@ -116,7 +116,24 @@ internal sealed class ThumbnailCache
 
     public void Invalidate()
     {
-        _knownChecksums.Clear();
+        var changed = false;
+        foreach (var pair in _knownChecksums)
+        {
+            if (IsCurrentSource(pair.Key, pair.Value))
+            {
+                continue;
+            }
+
+            if (_knownChecksums.TryRemove(pair.Key, out _))
+            {
+                changed = true;
+            }
+        }
+
+        if (changed)
+        {
+            PersistIndex();
+        }
     }
 
     public bool TryGetPath(string checksum, out string path)
@@ -361,6 +378,25 @@ internal sealed class ThumbnailCache
 
     private static bool IsSupportedMedia(string filePath) =>
         MediaTypes.TryGet(filePath, out _);
+
+    private static bool IsCurrentSource(string filePath, CachedChecksum checksum)
+    {
+        try
+        {
+            if (!IsSupportedMedia(filePath) || !File.Exists(filePath))
+            {
+                return false;
+            }
+
+            var fileInfo = new FileInfo(filePath);
+            return checksum.Length == fileInfo.Length
+                && checksum.LastWriteUtcTicks == fileInfo.LastWriteTimeUtc.Ticks;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     private static bool IsUsableFile(string path)
     {
