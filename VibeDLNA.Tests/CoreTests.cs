@@ -35,6 +35,14 @@ public sealed class CoreTests : IDisposable
     }
 
     [Fact]
+    public void WinUiStatusIndicatorAllowsTransparentBackground()
+    {
+        using var indicator = new WinUiStatusIndicator();
+
+        Assert.Equal(System.Drawing.Color.Transparent, indicator.BackColor);
+    }
+
+    [Fact]
     public void LibraryFiltersMediaAndEnumeratesFolders()
     {
         Directory.CreateDirectory(Path.Combine(_root, "Series"));

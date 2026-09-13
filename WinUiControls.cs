@@ -101,7 +101,8 @@ internal sealed class WinUiStatusIndicator : Control, IThemeAware
             ControlStyles.AllPaintingInWmPaint
             | ControlStyles.OptimizedDoubleBuffer
             | ControlStyles.ResizeRedraw
-            | ControlStyles.UserPaint,
+            | ControlStyles.UserPaint
+            | ControlStyles.SupportsTransparentBackColor,
             true);
         BackColor = Color.Transparent;
         AccessibleRole = AccessibleRole.Graphic;
