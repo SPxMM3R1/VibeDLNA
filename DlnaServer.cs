@@ -17,14 +17,11 @@ internal sealed class DlnaServer : IDisposable
     private readonly bool _autoRescan;
     private readonly bool _keepAwake;
     private readonly ThumbnailCache _thumbnailCache;
-    private readonly ThumbnailRequestAgent _thumbnailAgent;
-    private readonly object _thumbnailWarmupSync = new();
+    private readonly ThumbnailWarmupService _thumbnailWarmupService;
     private DlnaContentLibrary? _library;
     private TcpListener? _listener;
     private CancellationTokenSource? _cancellation;
     private Task? _acceptLoopTask;
-    private Task? _thumbnailWarmupTask;
-    private CancellationTokenSource? _thumbnailWarmupCancellation;
     private SsdpServer? _ssdpServer;
     private readonly List<FileSystemWatcher> _watchers = new();
     private IPAddress _localAddress = IPAddress.Loopback;
@@ -56,7 +53,9 @@ internal sealed class DlnaServer : IDisposable
         _autoRescan = autoRescan;
         _keepAwake = keepAwake;
         _thumbnailCache = thumbnailCache ?? new ThumbnailCache();
-        _thumbnailAgent = new ThumbnailRequestAgent(_thumbnailCache);
+        _thumbnailWarmupService = new ThumbnailWarmupService(
+            _thumbnailCache,
+            message => Message?.Invoke(this, message));
     }
 
     public bool IsRunning => _listener is not null;
@@ -67,16 +66,7 @@ internal sealed class DlnaServer : IDisposable
 
     public string DescriptionUrl => $"{BaseUrl}/description.xml";
 
-    internal Task ThumbnailWarmupTask
-    {
-        get
-        {
-            lock (_thumbnailWarmupSync)
-            {
-                return _thumbnailWarmupTask ?? Task.CompletedTask;
-            }
-        }
-    }
+    internal Task ThumbnailWarmupTask => _thumbnailWarmupService.CurrentTask;
 
     public async Task StartAsync()
     {
@@ -94,7 +84,10 @@ internal sealed class DlnaServer : IDisposable
         Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
         PowerKeepAwake.SetEnabled(_keepAwake);
         StartWatchers();
-        StartThumbnailWarmup(_cancellation.Token);
+        _thumbnailWarmupService.Start(
+            _mediaFolders,
+            IsAllowedThumbnailSource,
+            _cancellation.Token);
 
         _acceptLoopTask = Task.Run(() => AcceptLoopAsync(_cancellation.Token));
 
@@ -114,13 +107,13 @@ internal sealed class DlnaServer : IDisposable
     {
         if (!IsRunning)
         {
-            await StopThumbnailWarmupAsync();
+            await _thumbnailWarmupService.StopAsync();
             return;
         }
 
         _isStopping = true;
         _cancellation?.Cancel();
-        var thumbnailStopTask = StopThumbnailWarmupAsync();
+        var thumbnailStopTask = _thumbnailWarmupService.StopAsync();
 
         if (_ssdpServer is not null)
         {
@@ -166,7 +159,7 @@ internal sealed class DlnaServer : IDisposable
         _ssdpServer = null;
         try
         {
-            StopThumbnailWarmupAsync().GetAwaiter().GetResult();
+            _thumbnailWarmupService.StopAsync().GetAwaiter().GetResult();
         }
         catch
         {
@@ -178,7 +171,7 @@ internal sealed class DlnaServer : IDisposable
         _listener = null;
         _library = null;
         Port = 0;
-        _thumbnailAgent.Dispose();
+        _thumbnailWarmupService.Dispose();
     }
 
     public void Rescan()
@@ -195,83 +188,18 @@ internal sealed class DlnaServer : IDisposable
         _thumbnailCache.Invalidate();
         if (!_isStopping && _cancellation is not null && _library is not null)
         {
-            StartThumbnailWarmup(_cancellation.Token);
+            _thumbnailWarmupService.Start(
+                _mediaFolders,
+                IsAllowedThumbnailSource,
+                _cancellation.Token);
         }
 
         Message?.Invoke(this, "Biblioteca DLNA actualizada.");
     }
 
-    private void StartThumbnailWarmup(CancellationToken serverCancellation)
-    {
-        Task? previousTask;
-        CancellationTokenSource? previousCancellation;
-        lock (_thumbnailWarmupSync)
-        {
-            previousTask = _thumbnailWarmupTask;
-            previousCancellation = _thumbnailWarmupCancellation;
-            previousCancellation?.Cancel();
-
-            var warmupCancellation = CancellationTokenSource.CreateLinkedTokenSource(serverCancellation);
-            _thumbnailWarmupCancellation = warmupCancellation;
-            _thumbnailWarmupTask = _thumbnailAgent.WarmAsync(_mediaFolders, warmupCancellation.Token);
-        }
-
-        if (previousTask is not null || previousCancellation is not null)
-        {
-            _ = FinishPreviousThumbnailWarmupAsync(previousTask, previousCancellation);
-        }
-    }
-
-    private async Task StopThumbnailWarmupAsync()
-    {
-        Task? warmupTask;
-        CancellationTokenSource? warmupCancellation;
-        lock (_thumbnailWarmupSync)
-        {
-            warmupTask = _thumbnailWarmupTask;
-            warmupCancellation = _thumbnailWarmupCancellation;
-            _thumbnailWarmupTask = null;
-            _thumbnailWarmupCancellation = null;
-            warmupCancellation?.Cancel();
-        }
-
-        try
-        {
-            if (warmupTask is not null)
-            {
-                await warmupTask.ConfigureAwait(false);
-            }
-        }
-        catch
-        {
-            // A single warmup failure must not prevent the server from stopping.
-        }
-        finally
-        {
-            warmupCancellation?.Dispose();
-        }
-    }
-
-    private static async Task FinishPreviousThumbnailWarmupAsync(
-        Task? warmupTask,
-        CancellationTokenSource? warmupCancellation)
-    {
-        try
-        {
-            if (warmupTask is not null)
-            {
-                await warmupTask.ConfigureAwait(false);
-            }
-        }
-        catch
-        {
-            // Cancellation and per-file failures are expected during a rescan.
-        }
-        finally
-        {
-            warmupCancellation?.Dispose();
-        }
-    }
+    private bool IsAllowedThumbnailSource(string filePath) =>
+        MediaTypes.TryGet(filePath, out var mediaType)
+        && MediaTypes.IsAllowed(mediaType, _shareVideos, _shareAudio, _shareImages);
 
     private async Task AcceptLoopAsync(CancellationToken cancellationToken)
     {
@@ -369,12 +297,6 @@ internal sealed class DlnaServer : IDisposable
             {
                 await WriteResponseAsync(stream, 200, "OK", "text/xml; charset=utf-8",
                     Encoding.UTF8.GetBytes(DlnaXml.ConnectionManagerScpd()), request.Method, cancellationToken);
-                return;
-            }
-
-            if (path.StartsWith("/thumbnail/request/", StringComparison.OrdinalIgnoreCase))
-            {
-                await WriteRequestedThumbnailAsync(request, stream, path, cancellationToken);
                 return;
             }
 
@@ -614,51 +536,6 @@ internal sealed class DlnaServer : IDisposable
         await WriteThumbnailFileAsync(request, stream, thumbnailPath, cancellationToken);
     }
 
-    private async Task WriteRequestedThumbnailAsync(
-        HttpRequestData request,
-        Stream stream,
-        string path,
-        CancellationToken cancellationToken)
-    {
-        var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        var isValidPath = segments.Length == 3
-            && segments[1].Equals("request", StringComparison.OrdinalIgnoreCase)
-            && segments[2].EndsWith(".jpg", StringComparison.OrdinalIgnoreCase);
-        if (!isValidPath)
-        {
-            await WriteNotFoundAsync(request, stream, cancellationToken);
-            return;
-        }
-
-        string objectId;
-        try
-        {
-            objectId = Uri.UnescapeDataString(segments[2][..^4]);
-        }
-        catch
-        {
-            await WriteNotFoundAsync(request, stream, cancellationToken);
-            return;
-        }
-
-        if (objectId.Contains('/', StringComparison.Ordinal)
-            || !Library.TryGetFile(objectId, out var filePath, out var mediaType)
-            || mediaType.Kind != MediaKind.Video)
-        {
-            await WriteNotFoundAsync(request, stream, cancellationToken);
-            return;
-        }
-
-        var checksum = await _thumbnailAgent.RequestAsync(filePath, cancellationToken);
-        if (checksum is null || !_thumbnailCache.TryGetPath(checksum, out var thumbnailPath))
-        {
-            await WriteNotFoundAsync(request, stream, cancellationToken);
-            return;
-        }
-
-        await WriteThumbnailFileAsync(request, stream, thumbnailPath, cancellationToken);
-    }
-
     private async Task WriteThumbnailFileAsync(
         HttpRequestData request,
         Stream stream,
@@ -696,19 +573,6 @@ internal sealed class DlnaServer : IDisposable
             useAsync: true);
         await fileStream.CopyToAsync(stream, cancellationToken);
     }
-
-    private Task WriteNotFoundAsync(
-        HttpRequestData request,
-        Stream stream,
-        CancellationToken cancellationToken) =>
-        WriteResponseAsync(
-            stream,
-            404,
-            "Not Found",
-            "text/plain",
-            Encoding.UTF8.GetBytes("Not found"),
-            request.Method,
-            cancellationToken);
 
     private async Task WriteResponseAsync(
         Stream stream,

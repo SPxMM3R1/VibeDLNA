@@ -1,8 +1,4 @@
 using System.Collections.Concurrent;
-using System.Drawing;
-using System.Drawing.Drawing2D;
-using System.Drawing.Imaging;
-using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 
@@ -10,23 +6,20 @@ namespace FolderDlnaServer;
 
 internal sealed class ThumbnailCache
 {
-    private const int ThumbnailWidth = 320;
-    private const int ThumbnailHeight = 180;
-    private static readonly Guid ShellItemImageFactoryId =
-        new("BCC18B79-BA16-442F-80C4-8A59C30C463B");
-
     private readonly string _directory;
     private readonly string _indexPath;
+    private readonly IThumbnailProvider _thumbnailProvider;
     private readonly object _indexSync = new();
     private readonly ConcurrentDictionary<string, Lazy<string?>> _inFlight = new(
         StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, CachedChecksum> _knownChecksums = new(
         StringComparer.OrdinalIgnoreCase);
 
-    public ThumbnailCache(string? directory = null)
+    public ThumbnailCache(string? directory = null, IThumbnailProvider? thumbnailProvider = null)
     {
         _directory = Path.GetFullPath(directory ?? DefaultDirectory);
         _indexPath = Path.Combine(_directory, "index.json");
+        _thumbnailProvider = thumbnailProvider ?? new WindowsThumbnailProvider();
         Directory.CreateDirectory(_directory);
         LoadIndex();
     }
@@ -39,19 +32,23 @@ internal sealed class ThumbnailCache
 
     public string DirectoryPath => _directory;
 
-    public string? GetOrCreate(string filePath)
+    public string? GetOrCreate(string filePath) =>
+        GetOrCreate(filePath, CancellationToken.None);
+
+    internal string? GetOrCreate(string filePath, CancellationToken cancellationToken)
     {
         string fullPath;
         try
         {
             fullPath = Path.GetFullPath(filePath);
+            cancellationToken.ThrowIfCancellationRequested();
         }
         catch
         {
             return null;
         }
 
-        if (!IsVideo(fullPath) || !File.Exists(fullPath))
+        if (!IsSupportedMedia(fullPath) || !File.Exists(fullPath))
         {
             _knownChecksums.TryRemove(fullPath, out _);
             return null;
@@ -61,6 +58,7 @@ internal sealed class ThumbnailCache
         try
         {
             var fileInfo = new FileInfo(fullPath);
+            cancellationToken.ThrowIfCancellationRequested();
             if (_knownChecksums.TryGetValue(fullPath, out var knownChecksum)
                 && knownChecksum.Length == fileInfo.Length
                 && knownChecksum.LastWriteUtcTicks == fileInfo.LastWriteTimeUtc.Ticks)
@@ -69,7 +67,7 @@ internal sealed class ThumbnailCache
             }
             else
             {
-                checksum = ComputeChecksum(fullPath);
+                checksum = ComputeChecksum(fullPath, cancellationToken);
                 var currentInfo = new FileInfo(fullPath);
                 _knownChecksums[fullPath] = new CachedChecksum(
                     currentInfo.Length,
@@ -78,12 +76,17 @@ internal sealed class ThumbnailCache
                 PersistIndex();
             }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
         catch
         {
             _knownChecksums.TryRemove(fullPath, out _);
             return null;
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         var cachedPath = GetCachePath(checksum);
         if (IsUsableFile(cachedPath))
         {
@@ -98,6 +101,7 @@ internal sealed class ThumbnailCache
 
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             return pending.Value;
         }
         finally
@@ -134,8 +138,8 @@ internal sealed class ThumbnailCache
     }
 
     /// <summary>
-    /// Returns a thumbnail that is already indexed and ready without hashing
-    /// or rendering the source video on the request thread.
+    /// Returns artwork that is already indexed and ready without hashing or
+    /// rendering the source media on the request thread.
     /// </summary>
     public string? TryGetCached(string filePath)
     {
@@ -143,7 +147,7 @@ internal sealed class ThumbnailCache
         try
         {
             fullPath = Path.GetFullPath(filePath);
-            if (!IsVideo(fullPath) || !File.Exists(fullPath))
+            if (!IsSupportedMedia(fullPath) || !File.Exists(fullPath))
             {
                 return null;
             }
@@ -170,7 +174,10 @@ internal sealed class ThumbnailCache
 
     internal string IndexPathForTesting => _indexPath;
 
-    internal static string ComputeChecksum(string filePath)
+    internal static string ComputeChecksum(string filePath) =>
+        ComputeChecksum(filePath, CancellationToken.None);
+
+    private static string ComputeChecksum(string filePath, CancellationToken cancellationToken)
     {
         using var stream = new FileStream(
             filePath,
@@ -179,7 +186,22 @@ internal sealed class ThumbnailCache
             FileShare.ReadWrite | FileShare.Delete,
             bufferSize: 1024 * 128,
             options: FileOptions.SequentialScan);
-        return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        var buffer = new byte[1024 * 128];
+        int read;
+        do
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            read = stream.Read(buffer, 0, buffer.Length);
+            if (read > 0)
+            {
+                hash.AppendData(buffer, 0, read);
+            }
+        }
+        while (read > 0);
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
     }
 
     private string? CreateThumbnail(string checksum, string sourcePath)
@@ -196,15 +218,8 @@ internal sealed class ThumbnailCache
 
         try
         {
-            if (!VideoThumbnailRenderer.TrySave(sourcePath, temporaryPath))
-            {
-                if (!VideoThumbnailRenderer.TrySaveFallback(temporaryPath))
-                {
-                    return null;
-                }
-            }
-
-            if (!IsUsableFile(temporaryPath))
+            if (!_thumbnailProvider.TrySave(sourcePath, temporaryPath)
+                || !IsUsableFile(temporaryPath))
             {
                 return null;
             }
@@ -344,9 +359,8 @@ internal sealed class ThumbnailCache
         }
     }
 
-    private static bool IsVideo(string filePath) =>
-        MediaTypes.TryGet(filePath, out var mediaType)
-        && mediaType.Kind == MediaKind.Video;
+    private static bool IsSupportedMedia(string filePath) =>
+        MediaTypes.TryGet(filePath, out _);
 
     private static bool IsUsableFile(string path)
     {
@@ -381,7 +395,7 @@ internal sealed class ThumbnailCache
         return true;
     }
 
-    internal static IEnumerable<string> EnumerateVideoFiles(
+    internal static IEnumerable<string> EnumerateMediaFiles(
         IReadOnlyList<string> roots,
         CancellationToken cancellationToken)
     {
@@ -401,7 +415,12 @@ internal sealed class ThumbnailCache
 
             foreach (var file in files)
             {
-                if (IsVideo(file))
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    yield break;
+                }
+
+                if (IsSupportedMedia(file))
                 {
                     yield return file;
                 }
@@ -438,218 +457,6 @@ internal sealed class ThumbnailCache
 
                 pending.Push(childDirectory);
             }
-        }
-    }
-
-    private static class VideoThumbnailRenderer
-    {
-        public static bool TrySave(string sourcePath, string targetPath)
-        {
-            using var thumbnail = TryGetShellThumbnail(sourcePath);
-            return thumbnail is not null && SaveJpeg(thumbnail, targetPath);
-        }
-
-        public static bool TrySaveFallback(string targetPath)
-        {
-            try
-            {
-                using var bitmap = new Bitmap(
-                    ThumbnailWidth,
-                    ThumbnailHeight,
-                    PixelFormat.Format24bppRgb);
-                using var graphics = Graphics.FromImage(bitmap);
-                graphics.Clear(Color.FromArgb(29, 36, 48));
-                graphics.SmoothingMode = SmoothingMode.AntiAlias;
-
-                using var borderPen = new Pen(Color.FromArgb(93, 111, 137), 3);
-                using var accentBrush = new SolidBrush(Color.FromArgb(62, 174, 238));
-                graphics.DrawRectangle(
-                    borderPen,
-                    22,
-                    22,
-                    ThumbnailWidth - 44,
-                    ThumbnailHeight - 44);
-                graphics.FillPolygon(
-                    accentBrush,
-                    new[]
-                    {
-                        new Point(139, 58),
-                        new Point(139, 122),
-                        new Point(204, 90)
-                    });
-
-                using var font = new Font("Segoe UI", 12f, FontStyle.Regular);
-                using var textBrush = new SolidBrush(Color.FromArgb(215, 225, 239));
-                graphics.DrawString(
-                    "VibeDLNA",
-                    font,
-                    textBrush,
-                    new PointF(ThumbnailWidth - 94, ThumbnailHeight - 28));
-
-                return SaveJpeg(bitmap, targetPath);
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        private static Bitmap? TryGetShellThumbnail(string sourcePath)
-        {
-            if (!OperatingSystem.IsWindows())
-            {
-                return null;
-            }
-
-            IShellItemImageFactory? factory = null;
-            var bitmapHandle = IntPtr.Zero;
-            try
-            {
-                var iid = ShellItemImageFactoryId;
-                var createResult = SHCreateItemFromParsingName(
-                    sourcePath,
-                    IntPtr.Zero,
-                    ref iid,
-                    out factory);
-                if (createResult < 0 || factory is null)
-                {
-                    return null;
-                }
-
-                var imageResult = factory.GetImage(
-                    new ShellSize(640, 360),
-                    ShellImageFlags.ThumbnailOnly | ShellImageFlags.BiggerSizeOk,
-                    out bitmapHandle);
-                if (imageResult < 0 || bitmapHandle == IntPtr.Zero)
-                {
-                    return null;
-                }
-
-                using var source = Image.FromHbitmap(bitmapHandle);
-                return CropToThumbnail(source);
-            }
-            catch
-            {
-                return null;
-            }
-            finally
-            {
-                if (bitmapHandle != IntPtr.Zero)
-                {
-                    DeleteObject(bitmapHandle);
-                }
-
-                if (factory is not null)
-                {
-                    Marshal.ReleaseComObject(factory);
-                }
-            }
-        }
-
-        private static Bitmap CropToThumbnail(Image source)
-        {
-            var sourceRatio = (double)source.Width / source.Height;
-            var targetRatio = (double)ThumbnailWidth / ThumbnailHeight;
-            var sourceWidth = source.Width;
-            var sourceHeight = source.Height;
-            var sourceX = 0;
-            var sourceY = 0;
-
-            if (sourceRatio > targetRatio)
-            {
-                sourceWidth = (int)Math.Round(source.Height * targetRatio);
-                sourceX = (source.Width - sourceWidth) / 2;
-            }
-            else if (sourceRatio < targetRatio)
-            {
-                sourceHeight = (int)Math.Round(source.Width / targetRatio);
-                sourceY = (source.Height - sourceHeight) / 2;
-            }
-
-            var result = new Bitmap(
-                ThumbnailWidth,
-                ThumbnailHeight,
-                PixelFormat.Format24bppRgb);
-            using var graphics = Graphics.FromImage(result);
-            graphics.CompositingMode = CompositingMode.SourceCopy;
-            graphics.CompositingQuality = CompositingQuality.HighQuality;
-            graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
-            graphics.SmoothingMode = SmoothingMode.HighQuality;
-            graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-            graphics.DrawImage(
-                source,
-                new Rectangle(0, 0, ThumbnailWidth, ThumbnailHeight),
-                new Rectangle(sourceX, sourceY, sourceWidth, sourceHeight),
-                GraphicsUnit.Pixel);
-            return result;
-        }
-
-        private static bool SaveJpeg(Image image, string targetPath)
-        {
-            try
-            {
-                var codec = ImageCodecInfo.GetImageEncoders()
-                    .FirstOrDefault(item => item.FormatID == ImageFormat.Jpeg.Guid);
-                if (codec is null)
-                {
-                    image.Save(targetPath, ImageFormat.Jpeg);
-                    return true;
-                }
-
-                using var parameters = new EncoderParameters(1);
-                parameters.Param[0] = new EncoderParameter(
-                    System.Drawing.Imaging.Encoder.Quality,
-                    86L);
-                image.Save(targetPath, codec, parameters);
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
-        private static extern int SHCreateItemFromParsingName(
-            string path,
-            IntPtr bindContext,
-            ref Guid interfaceId,
-            [MarshalAs(UnmanagedType.Interface)] out IShellItemImageFactory factory);
-
-        [DllImport("gdi32.dll")]
-        private static extern bool DeleteObject(IntPtr handle);
-
-        [ComImport]
-        [Guid("BCC18B79-BA16-442F-80C4-8A59C30C463B")]
-        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-        private interface IShellItemImageFactory
-        {
-            [PreserveSig]
-            int GetImage(
-                ShellSize size,
-                ShellImageFlags flags,
-                out IntPtr bitmapHandle);
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct ShellSize
-        {
-            public ShellSize(int width, int height)
-            {
-                Width = width;
-                Height = height;
-            }
-
-            public int Width;
-
-            public int Height;
-        }
-
-        [Flags]
-        private enum ShellImageFlags : uint
-        {
-            BiggerSizeOk = 0x00000001,
-            ThumbnailOnly = 0x00000008
         }
     }
 }
