@@ -114,20 +114,21 @@ public sealed class CoreTests : IDisposable
     }
 
     [Fact]
-    public void DidlAdvertisesOnDemandThumbnailWithoutBuildingDuringBrowse()
+    public void DidlOmitsUnavailableThumbnailWithoutBuildingDuringBrowse()
     {
         var videoPath = Path.Combine(_root, "uncached.mp4");
         File.WriteAllBytes(videoPath, new byte[] { 10, 20, 30 });
         var library = new DlnaContentLibrary(new[] { _root }, true, false, false);
         var entry = Assert.Single(library.GetChildren("R:0"), item => !item.IsDirectory);
         var cachePath = Path.Combine(_root, "thumbnails");
-        var cache = new ThumbnailCache(cachePath);
+        var provider = new RecordingThumbnailProvider();
+        var cache = new ThumbnailCache(cachePath, provider);
 
         var didl = DlnaXml.BuildDidl(new[] { entry }, "http://127.0.0.1:1234", cache);
 
-        Assert.Contains(
-            $"/thumbnail/request/{Uri.EscapeDataString(entry.Id)}.jpg",
-            didl);
+        Assert.DoesNotContain("albumArtURI", didl);
+        Assert.DoesNotContain("thumbnail/request", didl);
+        Assert.Equal(0, provider.Calls);
         Assert.Empty(Directory.EnumerateFiles(cachePath, "*.jpg"));
     }
 
@@ -141,62 +142,24 @@ public sealed class CoreTests : IDisposable
         File.WriteAllBytes(movedVideoPath, content);
         var cachePath = Path.Combine(_root, "thumbnails");
 
-        var firstCache = new ThumbnailCache(cachePath);
+        var provider = new RecordingThumbnailProvider();
+        var firstCache = new ThumbnailCache(cachePath, provider);
         var checksum = firstCache.GetOrCreate(firstVideoPath);
 
         Assert.NotNull(checksum);
         Assert.True(File.Exists(firstCache.IndexPathForTesting));
 
-        var restartedCache = new ThumbnailCache(cachePath);
+        var restartedCache = new ThumbnailCache(cachePath, provider);
 
         Assert.Equal(checksum, restartedCache.TryGetCached(firstVideoPath));
         Assert.Equal(checksum, restartedCache.GetOrCreate(movedVideoPath));
         Assert.True(restartedCache.TryGetPath(checksum!, out var thumbnailPath));
         Assert.True(File.Exists(thumbnailPath));
+        Assert.Equal(1, provider.Calls);
     }
 
     [Fact]
-    public async Task ThumbnailRequestGeneratesAndServesVideoResource()
-    {
-        var videoPath = Path.Combine(_root, "on-demand.mp4");
-        File.WriteAllBytes(videoPath, new byte[] { 10, 20, 30 });
-        var library = new DlnaContentLibrary(new[] { _root }, true, false, false);
-        var entry = Assert.Single(library.GetChildren("R:0"), item => !item.IsDirectory);
-        var cache = new ThumbnailCache(Path.Combine(_root, "thumbnails"));
-        using var server = new DlnaServer(
-            new[] { _root },
-            "VibeDLNA Test",
-            Guid.NewGuid().ToString("D"),
-            0,
-            true,
-            false,
-            false,
-            false,
-            false,
-            cache);
-        await server.StartAsync();
-
-        using var client = new HttpClient();
-        var escapedObjectId = Uri.EscapeDataString(entry.Id);
-        Assert.Contains("%3A", escapedObjectId, StringComparison.OrdinalIgnoreCase);
-        using var response = await client.GetAsync(
-            $"{server.BaseUrl}/thumbnail/request/{escapedObjectId}.jpg");
-        var body = await response.Content.ReadAsByteArrayAsync();
-
-        response.EnsureSuccessStatusCode();
-        Assert.Equal("image/jpeg", response.Content.Headers.ContentType?.MediaType);
-        Assert.True(body.Length > 16);
-        Assert.Equal(0xFF, body[0]);
-        Assert.Equal(0xD8, body[1]);
-        Assert.Equal(
-            ThumbnailCache.ComputeChecksum(videoPath),
-            cache.TryGetCached(videoPath));
-
-        await server.StopAsync();
-    }
-
-    [Fact]
-    public async Task ThumbnailRequestRejectsUnknownObject()
+    public async Task ThumbnailRequestEndpointIsNotExposed()
     {
         var cache = new ThumbnailCache(Path.Combine(_root, "thumbnails"));
         using var server = new DlnaServer(
@@ -225,7 +188,8 @@ public sealed class CoreTests : IDisposable
     {
         var videoPath = Path.Combine(_root, "warmup.mp4");
         File.WriteAllBytes(videoPath, new byte[] { 10, 20, 30 });
-        var cache = new ThumbnailCache(Path.Combine(_root, "thumbnails"));
+        var provider = new RecordingThumbnailProvider();
+        var cache = new ThumbnailCache(Path.Combine(_root, "thumbnails"), provider);
         using var server = new DlnaServer(
             new[] { _root },
             "VibeDLNA Test",
@@ -239,11 +203,72 @@ public sealed class CoreTests : IDisposable
             cache);
         await server.StartAsync();
         var warmupTask = server.ThumbnailWarmupTask;
+        await warmupTask;
+
+        Assert.Equal(1, provider.Calls);
+        Assert.NotNull(cache.TryGetCached(videoPath));
 
         await server.StopAsync();
 
         Assert.True(warmupTask.IsCompleted);
         await warmupTask;
+    }
+
+    [Fact]
+    public async Task ThumbnailWarmupCoversAllConfiguredFoldersAndSupportedMedia()
+    {
+        var secondRoot = Path.Combine(_root, "second-root");
+        var nestedFolder = Path.Combine(_root, "nested");
+        Directory.CreateDirectory(secondRoot);
+        Directory.CreateDirectory(nestedFolder);
+        var videoPath = Path.Combine(_root, "clip.mp4");
+        var audioPath = Path.Combine(nestedFolder, "song.mp3");
+        var imagePath = Path.Combine(secondRoot, "cover.jpg");
+        File.WriteAllBytes(videoPath, new byte[] { 1, 2, 3 });
+        File.WriteAllBytes(audioPath, new byte[] { 4, 5, 6 });
+        File.WriteAllBytes(imagePath, new byte[] { 7, 8, 9 });
+
+        var provider = new RecordingThumbnailProvider();
+        var cache = new ThumbnailCache(Path.Combine(_root, "thumbnails"), provider);
+        using var server = new DlnaServer(
+            new[] { _root, secondRoot },
+            "VibeDLNA Test",
+            Guid.NewGuid().ToString("D"),
+            0,
+            true,
+            true,
+            true,
+            false,
+            false,
+            cache);
+
+        await server.StartAsync();
+        await server.ThumbnailWarmupTask;
+
+        Assert.NotNull(cache.TryGetCached(videoPath));
+        Assert.NotNull(cache.TryGetCached(audioPath));
+        Assert.NotNull(cache.TryGetCached(imagePath));
+        Assert.Equal(3, provider.Calls);
+        await server.StopAsync();
+    }
+
+    [Fact]
+    public void NativeThumbnailFailureLeavesMediaNavigableWithoutArtwork()
+    {
+        var videoPath = Path.Combine(_root, "without-artwork.mp4");
+        File.WriteAllBytes(videoPath, new byte[] { 10, 20, 30 });
+        var library = new DlnaContentLibrary(new[] { _root }, true, false, false);
+        var entry = Assert.Single(library.GetChildren("R:0"), item => !item.IsDirectory);
+        var cachePath = Path.Combine(_root, "thumbnails");
+        var cache = new ThumbnailCache(cachePath, new FailingThumbnailProvider());
+
+        Assert.Null(cache.GetOrCreate(videoPath));
+        Assert.Empty(Directory.EnumerateFiles(cachePath, "*.jpg"));
+
+        var didl = DlnaXml.BuildDidl(new[] { entry }, "http://127.0.0.1:1234", cache);
+
+        Assert.DoesNotContain("albumArtURI", didl);
+        Assert.Contains("without-artwork", didl);
     }
 
     [Fact]
@@ -334,6 +359,25 @@ public sealed class CoreTests : IDisposable
         response.EnsureSuccessStatusCode();
         Assert.Equal("\"video loco.mp4\"", response.Content.Headers.ContentDisposition?.FileName);
         Assert.Equal("video loco.mp4", response.Content.Headers.ContentDisposition?.FileNameStar);
+    }
+
+    private sealed class RecordingThumbnailProvider : IThumbnailProvider
+    {
+        private int _calls;
+
+        public int Calls => Volatile.Read(ref _calls);
+
+        public bool TrySave(string sourcePath, string targetPath)
+        {
+            Interlocked.Increment(ref _calls);
+            File.WriteAllBytes(targetPath, new byte[] { 0xFF, 0xD8, 0xFF, 0xD9 });
+            return true;
+        }
+    }
+
+    private sealed class FailingThumbnailProvider : IThumbnailProvider
+    {
+        public bool TrySave(string sourcePath, string targetPath) => false;
     }
 
     public void Dispose()

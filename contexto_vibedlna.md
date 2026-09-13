@@ -2,7 +2,7 @@
 
 ## estado de este documento
 
-- fecha de actualización: 2026-09-11
+- fecha de actualización: 2026-09-13
 - este archivo reemplaza a CONTEXTO_VIBEDLNA.md
 - nombre del archivo en minúsculas: contexto_vibedlna.md
 - alcance: aplicación Windows VibeDLNA, no VibeM3U ni VibeDLNA Player
@@ -58,8 +58,8 @@ Funciones del producto:
 - reescanear carpetas automáticamente con debounce;
 - funcionar en modo claro y oscuro;
 - usar Mica en Windows compatible y un fondo propio como fallback;
-- construir y servir miniaturas de video mediante una caché persistente por SHA-256 del contenido;
-- reutilizar la miniatura cuando el mismo video aparece duplicado, renombrado o movido a otra ruta;
+- construir y servir miniaturas de medios compatibles mediante una caché persistente por SHA-256 del contenido;
+- reutilizar la miniatura cuando el mismo medio aparece duplicado, renombrado o movido a otra ruta;
 - comprobar actualizaciones desde la última release pública del repositorio de GitHub y preparar la sustitución/reinicio del ejecutable;
 - servir los archivos originales sin transcodificar.
 
@@ -96,7 +96,9 @@ La idea de pasar a WinUI 3 solo fue exploratoria mediante mockups. Si se retoma,
 - SettingsService.cs: lectura, normalización, migración y guardado.
 - DlnaContentLibrary.cs: enumeración, filtrado y seguridad de las carpetas compartidas.
 - DlnaServer.cs: servidor HTTP, descripción UPnP y streaming con rangos.
-- ThumbnailCache.cs: hash SHA-256, caché persistente JPG, generación mediante Windows Shell y fallback visual.
+- ThumbnailCache.cs: hash SHA-256, caché persistente JPG y publicación únicamente de artwork listo.
+- WindowsThumbnailProvider.cs: extracción de artwork mediante la API nativa de miniaturas de Windows Shell.
+- ThumbnailWarmupService.cs: precalentamiento limitado, cancelable y en segundo plano al iniciar y reescanear.
 - GitHubUpdateService.cs: consulta de releases, selección de paquete, verificación de tamaño/SHA-256 y actualizador auxiliar.
 - SsdpServer.cs: anuncios y descubrimiento SSDP.
 - DlnaXml.cs: XML del dispositivo, servicios y DIDL-Lite.
@@ -198,8 +200,9 @@ El servidor no convierte ni transcodifica videos. La TV o el reproductor cliente
 
 - La caché vive en `%LOCALAPPDATA%\VibeDLNA\ThumbnailCache`.
 - Cada archivo JPG se identifica con el SHA-256 del contenido completo, nunca con la ruta.
-- El servidor anuncia `upnp:albumArtURI` en DIDL-Lite y sirve el recurso por `/thumbnail/<sha256>.jpg` con caché HTTP de larga duración.
-- El servidor calienta la caché en segundo plano al iniciar y vuelve a intentarlo al reescanear. Si el proveedor de miniaturas de Windows no puede obtener un fotograma para un formato, se guarda una imagen de respaldo para que el cliente no quede sin recurso.
+- El servidor anuncia `upnp:albumArtURI` en DIDL-Lite solo cuando existe un JPG listo y lo sirve por `/thumbnail/<sha256>.jpg` con caché HTTP de larga duración.
+- El servidor calienta la caché en segundo plano al iniciar y vuelve a intentarlo al reescanear, para todos los medios compatibles de todas las carpetas compartidas. Usa la API nativa de miniaturas de Windows Shell con concurrencia limitada; Browse no calcula hashes ni genera imágenes.
+- No existe `/thumbnail/request/...`: el Player debe consumir únicamente la URL estable que aparezca en DIDL. Si Windows no puede producir una imagen real, el item se mantiene navegable y se omite `albumArtURI`; no se crea ni anuncia una imagen de respaldo.
 - La caché no tiene todavía una política de limpieza automática: conservar entradas antiguas permite reutilizar una miniatura después de mover o volver a agregar el video.
 
 ## compilación y entrega
@@ -257,7 +260,7 @@ El proyecto de pruebas usa xUnit y cubre, entre otros:
 - análisis de etiquetas de versión del actualizador.
 
 En esta modificación se ejecutaron 14 pruebas locales y pasaron todas. También se ejecutó `.\build-release.ps1 -Version v1.0.1`: generó correctamente el ejecutable autocontenido, `VibeDLNA-Setup-1.0.1.exe`, `VibeDLNA-windows.zip` y su SHA-256. GitHub Actions ejecutó el run `34661321452` con build correcto y el job release `103464691666`; la release y sus tres assets fueron verificados en GitHub.
-No se probó aún la extracción de un fotograma con un video real de cada formato ni la reproducción de la miniatura en una TV física. La generación real depende del proveedor de miniaturas/codecs instalados en Windows; el fallback sí está contemplado por código.
+No se probó aún la extracción de un fotograma con un medio real de cada formato ni la reproducción de la miniatura en una TV física. La generación real depende de los proveedores de miniaturas/codecs instalados en Windows; si no hay proveedor compatible, el item se publica sin artwork.
 
 ## pendientes y riesgos conocidos
 
