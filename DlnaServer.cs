@@ -17,16 +17,20 @@ internal sealed class DlnaServer : IDisposable
     private readonly bool _autoRescan;
     private readonly bool _keepAwake;
     private readonly ThumbnailCache _thumbnailCache;
+    private readonly ThumbnailRequestAgent _thumbnailAgent;
+    private readonly object _thumbnailWarmupSync = new();
     private DlnaContentLibrary? _library;
     private TcpListener? _listener;
     private CancellationTokenSource? _cancellation;
     private Task? _acceptLoopTask;
     private Task? _thumbnailWarmupTask;
+    private CancellationTokenSource? _thumbnailWarmupCancellation;
     private SsdpServer? _ssdpServer;
     private readonly List<FileSystemWatcher> _watchers = new();
     private IPAddress _localAddress = IPAddress.Loopback;
     private int _systemUpdateId = 1;
     private long _lastRescanTimestamp;
+    private bool _isStopping;
 
     public event EventHandler<string>? Message;
 
@@ -52,6 +56,7 @@ internal sealed class DlnaServer : IDisposable
         _autoRescan = autoRescan;
         _keepAwake = keepAwake;
         _thumbnailCache = thumbnailCache ?? new ThumbnailCache();
+        _thumbnailAgent = new ThumbnailRequestAgent(_thumbnailCache);
     }
 
     public bool IsRunning => _listener is not null;
@@ -62,6 +67,17 @@ internal sealed class DlnaServer : IDisposable
 
     public string DescriptionUrl => $"{BaseUrl}/description.xml";
 
+    internal Task ThumbnailWarmupTask
+    {
+        get
+        {
+            lock (_thumbnailWarmupSync)
+            {
+                return _thumbnailWarmupTask ?? Task.CompletedTask;
+            }
+        }
+    }
+
     public async Task StartAsync()
     {
         if (IsRunning)
@@ -69,6 +85,7 @@ internal sealed class DlnaServer : IDisposable
             return;
         }
 
+        _isStopping = false;
         _localAddress = NetworkHelper.GetLocalIPv4Address();
         _library = new DlnaContentLibrary(_mediaFolders, _shareVideos, _shareAudio, _shareImages);
         _cancellation = new CancellationTokenSource();
@@ -77,7 +94,7 @@ internal sealed class DlnaServer : IDisposable
         Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
         PowerKeepAwake.SetEnabled(_keepAwake);
         StartWatchers();
-        _thumbnailWarmupTask = _thumbnailCache.WarmAsync(_mediaFolders, _cancellation.Token);
+        StartThumbnailWarmup(_cancellation.Token);
 
         _acceptLoopTask = Task.Run(() => AcceptLoopAsync(_cancellation.Token));
 
@@ -97,8 +114,13 @@ internal sealed class DlnaServer : IDisposable
     {
         if (!IsRunning)
         {
+            await StopThumbnailWarmupAsync();
             return;
         }
+
+        _isStopping = true;
+        _cancellation?.Cancel();
+        var thumbnailStopTask = StopThumbnailWarmupAsync();
 
         if (_ssdpServer is not null)
         {
@@ -109,7 +131,6 @@ internal sealed class DlnaServer : IDisposable
 
         StopWatchers();
         PowerKeepAwake.SetEnabled(false);
-        _cancellation?.Cancel();
         _listener?.Stop();
 
         try
@@ -124,6 +145,8 @@ internal sealed class DlnaServer : IDisposable
             // The listener is stopped intentionally.
         }
 
+        await thumbnailStopTask;
+
         _listener = null;
         _acceptLoopTask = null;
         _cancellation?.Dispose();
@@ -134,12 +157,28 @@ internal sealed class DlnaServer : IDisposable
 
     public void Dispose()
     {
+        _isStopping = true;
         _cancellation?.Cancel();
         _listener?.Stop();
         StopWatchers();
         PowerKeepAwake.SetEnabled(false);
         _ssdpServer?.Dispose();
+        _ssdpServer = null;
+        try
+        {
+            StopThumbnailWarmupAsync().GetAwaiter().GetResult();
+        }
+        catch
+        {
+            // Disposal is best effort and must not throw during process shutdown.
+        }
+
         _cancellation?.Dispose();
+        _cancellation = null;
+        _listener = null;
+        _library = null;
+        Port = 0;
+        _thumbnailAgent.Dispose();
     }
 
     public void Rescan()
@@ -154,12 +193,84 @@ internal sealed class DlnaServer : IDisposable
         Interlocked.Exchange(ref _lastRescanTimestamp, now);
         Interlocked.Increment(ref _systemUpdateId);
         _thumbnailCache.Invalidate();
-        if (_cancellation is not null && _library is not null)
+        if (!_isStopping && _cancellation is not null && _library is not null)
         {
-            _thumbnailWarmupTask = _thumbnailCache.WarmAsync(_mediaFolders, _cancellation.Token);
+            StartThumbnailWarmup(_cancellation.Token);
         }
 
         Message?.Invoke(this, "Biblioteca DLNA actualizada.");
+    }
+
+    private void StartThumbnailWarmup(CancellationToken serverCancellation)
+    {
+        Task? previousTask;
+        CancellationTokenSource? previousCancellation;
+        lock (_thumbnailWarmupSync)
+        {
+            previousTask = _thumbnailWarmupTask;
+            previousCancellation = _thumbnailWarmupCancellation;
+            previousCancellation?.Cancel();
+
+            var warmupCancellation = CancellationTokenSource.CreateLinkedTokenSource(serverCancellation);
+            _thumbnailWarmupCancellation = warmupCancellation;
+            _thumbnailWarmupTask = _thumbnailAgent.WarmAsync(_mediaFolders, warmupCancellation.Token);
+        }
+
+        if (previousTask is not null || previousCancellation is not null)
+        {
+            _ = FinishPreviousThumbnailWarmupAsync(previousTask, previousCancellation);
+        }
+    }
+
+    private async Task StopThumbnailWarmupAsync()
+    {
+        Task? warmupTask;
+        CancellationTokenSource? warmupCancellation;
+        lock (_thumbnailWarmupSync)
+        {
+            warmupTask = _thumbnailWarmupTask;
+            warmupCancellation = _thumbnailWarmupCancellation;
+            _thumbnailWarmupTask = null;
+            _thumbnailWarmupCancellation = null;
+            warmupCancellation?.Cancel();
+        }
+
+        try
+        {
+            if (warmupTask is not null)
+            {
+                await warmupTask.ConfigureAwait(false);
+            }
+        }
+        catch
+        {
+            // A single warmup failure must not prevent the server from stopping.
+        }
+        finally
+        {
+            warmupCancellation?.Dispose();
+        }
+    }
+
+    private static async Task FinishPreviousThumbnailWarmupAsync(
+        Task? warmupTask,
+        CancellationTokenSource? warmupCancellation)
+    {
+        try
+        {
+            if (warmupTask is not null)
+            {
+                await warmupTask.ConfigureAwait(false);
+            }
+        }
+        catch
+        {
+            // Cancellation and per-file failures are expected during a rescan.
+        }
+        finally
+        {
+            warmupCancellation?.Dispose();
+        }
     }
 
     private async Task AcceptLoopAsync(CancellationToken cancellationToken)
@@ -258,6 +369,12 @@ internal sealed class DlnaServer : IDisposable
             {
                 await WriteResponseAsync(stream, 200, "OK", "text/xml; charset=utf-8",
                     Encoding.UTF8.GetBytes(DlnaXml.ConnectionManagerScpd()), request.Method, cancellationToken);
+                return;
+            }
+
+            if (path.StartsWith("/thumbnail/request/", StringComparison.OrdinalIgnoreCase))
+            {
+                await WriteRequestedThumbnailAsync(request, stream, path, cancellationToken);
                 return;
             }
 
@@ -494,6 +611,60 @@ internal sealed class DlnaServer : IDisposable
             return;
         }
 
+        await WriteThumbnailFileAsync(request, stream, thumbnailPath, cancellationToken);
+    }
+
+    private async Task WriteRequestedThumbnailAsync(
+        HttpRequestData request,
+        Stream stream,
+        string path,
+        CancellationToken cancellationToken)
+    {
+        var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var isValidPath = segments.Length == 3
+            && segments[1].Equals("request", StringComparison.OrdinalIgnoreCase)
+            && segments[2].EndsWith(".jpg", StringComparison.OrdinalIgnoreCase);
+        if (!isValidPath)
+        {
+            await WriteNotFoundAsync(request, stream, cancellationToken);
+            return;
+        }
+
+        string objectId;
+        try
+        {
+            objectId = Uri.UnescapeDataString(segments[2][..^4]);
+        }
+        catch
+        {
+            await WriteNotFoundAsync(request, stream, cancellationToken);
+            return;
+        }
+
+        if (objectId.Contains('/', StringComparison.Ordinal)
+            || !Library.TryGetFile(objectId, out var filePath, out var mediaType)
+            || mediaType.Kind != MediaKind.Video)
+        {
+            await WriteNotFoundAsync(request, stream, cancellationToken);
+            return;
+        }
+
+        var checksum = await _thumbnailAgent.RequestAsync(filePath, cancellationToken);
+        if (checksum is null || !_thumbnailCache.TryGetPath(checksum, out var thumbnailPath))
+        {
+            await WriteNotFoundAsync(request, stream, cancellationToken);
+            return;
+        }
+
+        await WriteThumbnailFileAsync(request, stream, thumbnailPath, cancellationToken);
+    }
+
+    private async Task WriteThumbnailFileAsync(
+        HttpRequestData request,
+        Stream stream,
+        string thumbnailPath,
+        CancellationToken cancellationToken)
+    {
         var fileInfo = new FileInfo(thumbnailPath);
         var headers = new Dictionary<string, string>
         {
@@ -525,6 +696,19 @@ internal sealed class DlnaServer : IDisposable
             useAsync: true);
         await fileStream.CopyToAsync(stream, cancellationToken);
     }
+
+    private Task WriteNotFoundAsync(
+        HttpRequestData request,
+        Stream stream,
+        CancellationToken cancellationToken) =>
+        WriteResponseAsync(
+            stream,
+            404,
+            "Not Found",
+            "text/plain",
+            Encoding.UTF8.GetBytes("Not found"),
+            request.Method,
+            cancellationToken);
 
     private async Task WriteResponseAsync(
         Stream stream,

@@ -195,12 +195,14 @@ internal static class DlnaXml
 
                 if (thumbnailCache is not null
                     && MediaTypes.TryGet(entry.FullPath, out var mediaType)
-                    && mediaType.Kind == MediaKind.Video
-                    && thumbnailCache.TryGetCached(entry.FullPath) is { } thumbnailKey)
+                    && mediaType.Kind == MediaKind.Video)
                 {
+                    var thumbnailUrl = thumbnailCache.TryGetCached(entry.FullPath) is { } thumbnailKey
+                        ? $"{baseUrl}/thumbnail/{thumbnailKey}.jpg"
+                        : $"{baseUrl}/thumbnail/request/{Uri.EscapeDataString(entry.Id)}.jpg";
                     item.Add(new XElement(
                         upnp + "albumArtURI",
-                        $"{baseUrl}/thumbnail/{thumbnailKey}.jpg"));
+                        thumbnailUrl));
                 }
 
                 root.Add(item);

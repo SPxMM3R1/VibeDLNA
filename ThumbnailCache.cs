@@ -4,6 +4,7 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Text.Json;
 
 namespace FolderDlnaServer;
 
@@ -15,6 +16,8 @@ internal sealed class ThumbnailCache
         new("BCC18B79-BA16-442F-80C4-8A59C30C463B");
 
     private readonly string _directory;
+    private readonly string _indexPath;
+    private readonly object _indexSync = new();
     private readonly ConcurrentDictionary<string, Lazy<string?>> _inFlight = new(
         StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, CachedChecksum> _knownChecksums = new(
@@ -23,7 +26,9 @@ internal sealed class ThumbnailCache
     public ThumbnailCache(string? directory = null)
     {
         _directory = Path.GetFullPath(directory ?? DefaultDirectory);
+        _indexPath = Path.Combine(_directory, "index.json");
         Directory.CreateDirectory(_directory);
+        LoadIndex();
     }
 
     public static string DefaultDirectory =>
@@ -70,6 +75,7 @@ internal sealed class ThumbnailCache
                     currentInfo.Length,
                     currentInfo.LastWriteTimeUtc.Ticks,
                     checksum);
+                PersistIndex();
             }
         }
         catch
@@ -162,6 +168,8 @@ internal sealed class ThumbnailCache
 
     internal string GetCachePathForTesting(string checksum) => GetCachePath(checksum);
 
+    internal string IndexPathForTesting => _indexPath;
+
     internal static string ComputeChecksum(string filePath)
     {
         using var stream = new FileStream(
@@ -172,38 +180,6 @@ internal sealed class ThumbnailCache
             bufferSize: 1024 * 128,
             options: FileOptions.SequentialScan);
         return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
-    }
-
-    public Task WarmAsync(IEnumerable<string> folders, CancellationToken cancellationToken)
-    {
-        var roots = folders
-            .Where(folder => !string.IsNullOrWhiteSpace(folder))
-            .Select(Path.GetFullPath)
-            .Where(Directory.Exists)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
-        return Task.Run(
-            () =>
-            {
-                foreach (var filePath in EnumerateVideoFiles(roots, cancellationToken))
-                {
-                    if (cancellationToken.IsCancellationRequested)
-                    {
-                        break;
-                    }
-
-                    try
-                    {
-                        GetOrCreate(filePath);
-                    }
-                    catch
-                    {
-                        // One inaccessible or changing file must not stop the cache warmup.
-                    }
-                }
-            },
-            CancellationToken.None);
     }
 
     private string? CreateThumbnail(string checksum, string sourcePath)
@@ -261,6 +237,113 @@ internal sealed class ThumbnailCache
 
     private sealed record CachedChecksum(long Length, long LastWriteUtcTicks, string Checksum);
 
+    private sealed class PersistedChecksum
+    {
+        public string Path { get; set; } = string.Empty;
+
+        public long Length { get; set; }
+
+        public long LastWriteUtcTicks { get; set; }
+
+        public string Checksum { get; set; } = string.Empty;
+    }
+
+    private static readonly JsonSerializerOptions IndexSerializerOptions = new()
+    {
+        WriteIndented = true
+    };
+
+    private void LoadIndex()
+    {
+        try
+        {
+            if (!File.Exists(_indexPath))
+            {
+                return;
+            }
+
+            var entries = JsonSerializer.Deserialize<List<PersistedChecksum>>(
+                File.ReadAllText(_indexPath),
+                IndexSerializerOptions);
+            if (entries is null)
+            {
+                return;
+            }
+
+            foreach (var entry in entries)
+            {
+                if (string.IsNullOrWhiteSpace(entry.Path)
+                    || !IsChecksum(entry.Checksum)
+                    || entry.Length < 0
+                    || entry.LastWriteUtcTicks < 0)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    _knownChecksums[Path.GetFullPath(entry.Path)] = new CachedChecksum(
+                        entry.Length,
+                        entry.LastWriteUtcTicks,
+                        entry.Checksum.ToLowerInvariant());
+                }
+                catch
+                {
+                    // Ignore an invalid path and continue rebuilding the index.
+                }
+            }
+        }
+        catch
+        {
+            // A corrupt or incompatible index must not prevent the server from starting.
+            _knownChecksums.Clear();
+        }
+    }
+
+    private void PersistIndex()
+    {
+        lock (_indexSync)
+        {
+            var entries = _knownChecksums
+                .Select(pair => new PersistedChecksum
+                {
+                    Path = pair.Key,
+                    Length = pair.Value.Length,
+                    LastWriteUtcTicks = pair.Value.LastWriteUtcTicks,
+                    Checksum = pair.Value.Checksum
+                })
+                .OrderBy(entry => entry.Path, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var temporaryPath = _indexPath + ".tmp";
+
+            try
+            {
+                File.WriteAllText(
+                    temporaryPath,
+                    JsonSerializer.Serialize(entries, IndexSerializerOptions));
+                File.Move(temporaryPath, _indexPath, overwrite: true);
+            }
+            catch
+            {
+                // The in-memory index remains authoritative for this process.
+            }
+            finally
+            {
+                try
+                {
+                    if (File.Exists(temporaryPath))
+                    {
+                        File.Delete(temporaryPath);
+                    }
+                }
+                catch
+                {
+                    // Temporary cleanup is best effort.
+                }
+            }
+        }
+    }
+
     private static bool IsVideo(string filePath) =>
         MediaTypes.TryGet(filePath, out var mediaType)
         && mediaType.Kind == MediaKind.Video;
@@ -298,7 +381,7 @@ internal sealed class ThumbnailCache
         return true;
     }
 
-    private static IEnumerable<string> EnumerateVideoFiles(
+    internal static IEnumerable<string> EnumerateVideoFiles(
         IReadOnlyList<string> roots,
         CancellationToken cancellationToken)
     {

@@ -114,7 +114,7 @@ public sealed class CoreTests : IDisposable
     }
 
     [Fact]
-    public void DidlDoesNotBuildThumbnailDuringBrowse()
+    public void DidlAdvertisesOnDemandThumbnailWithoutBuildingDuringBrowse()
     {
         var videoPath = Path.Combine(_root, "uncached.mp4");
         File.WriteAllBytes(videoPath, new byte[] { 10, 20, 30 });
@@ -125,8 +125,125 @@ public sealed class CoreTests : IDisposable
 
         var didl = DlnaXml.BuildDidl(new[] { entry }, "http://127.0.0.1:1234", cache);
 
-        Assert.DoesNotContain("albumArtURI", didl);
-        Assert.Empty(Directory.EnumerateFiles(cachePath));
+        Assert.Contains(
+            $"/thumbnail/request/{Uri.EscapeDataString(entry.Id)}.jpg",
+            didl);
+        Assert.Empty(Directory.EnumerateFiles(cachePath, "*.jpg"));
+    }
+
+    [Fact]
+    public void ThumbnailCacheRestoresIndexAndReusesContentAfterRestart()
+    {
+        var firstVideoPath = Path.Combine(_root, "first.mp4");
+        var movedVideoPath = Path.Combine(_root, "moved.mp4");
+        var content = new byte[] { 10, 20, 30, 40 };
+        File.WriteAllBytes(firstVideoPath, content);
+        File.WriteAllBytes(movedVideoPath, content);
+        var cachePath = Path.Combine(_root, "thumbnails");
+
+        var firstCache = new ThumbnailCache(cachePath);
+        var checksum = firstCache.GetOrCreate(firstVideoPath);
+
+        Assert.NotNull(checksum);
+        Assert.True(File.Exists(firstCache.IndexPathForTesting));
+
+        var restartedCache = new ThumbnailCache(cachePath);
+
+        Assert.Equal(checksum, restartedCache.TryGetCached(firstVideoPath));
+        Assert.Equal(checksum, restartedCache.GetOrCreate(movedVideoPath));
+        Assert.True(restartedCache.TryGetPath(checksum!, out var thumbnailPath));
+        Assert.True(File.Exists(thumbnailPath));
+    }
+
+    [Fact]
+    public async Task ThumbnailRequestGeneratesAndServesVideoResource()
+    {
+        var videoPath = Path.Combine(_root, "on-demand.mp4");
+        File.WriteAllBytes(videoPath, new byte[] { 10, 20, 30 });
+        var library = new DlnaContentLibrary(new[] { _root }, true, false, false);
+        var entry = Assert.Single(library.GetChildren("R:0"), item => !item.IsDirectory);
+        var cache = new ThumbnailCache(Path.Combine(_root, "thumbnails"));
+        using var server = new DlnaServer(
+            new[] { _root },
+            "VibeDLNA Test",
+            Guid.NewGuid().ToString("D"),
+            0,
+            true,
+            false,
+            false,
+            false,
+            false,
+            cache);
+        await server.StartAsync();
+
+        using var client = new HttpClient();
+        var escapedObjectId = Uri.EscapeDataString(entry.Id);
+        Assert.Contains("%3A", escapedObjectId, StringComparison.OrdinalIgnoreCase);
+        using var response = await client.GetAsync(
+            $"{server.BaseUrl}/thumbnail/request/{escapedObjectId}.jpg");
+        var body = await response.Content.ReadAsByteArrayAsync();
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal("image/jpeg", response.Content.Headers.ContentType?.MediaType);
+        Assert.True(body.Length > 16);
+        Assert.Equal(0xFF, body[0]);
+        Assert.Equal(0xD8, body[1]);
+        Assert.Equal(
+            ThumbnailCache.ComputeChecksum(videoPath),
+            cache.TryGetCached(videoPath));
+
+        await server.StopAsync();
+    }
+
+    [Fact]
+    public async Task ThumbnailRequestRejectsUnknownObject()
+    {
+        var cache = new ThumbnailCache(Path.Combine(_root, "thumbnails"));
+        using var server = new DlnaServer(
+            new[] { _root },
+            "VibeDLNA Test",
+            Guid.NewGuid().ToString("D"),
+            0,
+            true,
+            false,
+            false,
+            false,
+            false,
+            cache);
+        await server.StartAsync();
+
+        using var client = new HttpClient();
+        using var response = await client.GetAsync(
+            $"{server.BaseUrl}/thumbnail/request/not-an-object.jpg");
+
+        Assert.Equal(404, (int)response.StatusCode);
+        await server.StopAsync();
+    }
+
+    [Fact]
+    public async Task ThumbnailWarmupStartsWithServerAndCompletesOnStop()
+    {
+        var videoPath = Path.Combine(_root, "warmup.mp4");
+        File.WriteAllBytes(videoPath, new byte[] { 10, 20, 30 });
+        var cache = new ThumbnailCache(Path.Combine(_root, "thumbnails"));
+        using var server = new DlnaServer(
+            new[] { _root },
+            "VibeDLNA Test",
+            Guid.NewGuid().ToString("D"),
+            0,
+            true,
+            false,
+            false,
+            false,
+            false,
+            cache);
+        await server.StartAsync();
+        var warmupTask = server.ThumbnailWarmupTask;
+
+        await server.StopAsync();
+
+        Assert.True(warmupTask.IsCompleted);
+        await warmupTask;
     }
 
     [Fact]
