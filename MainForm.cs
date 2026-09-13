@@ -643,7 +643,7 @@ internal sealed class MainForm : Form
 
     private void ConfigureActionButton(WinUiButton button, string text, string glyph, bool primary, Func<Task> action)
     {
-        ConfigureActionButton(button, text, glyph, primary, () => _ = action());
+        ConfigureActionButton(button, text, glyph, primary, (Action)(() => _ = action()));
     }
 
     private void ConfigureToggle(WinUiToggle toggle, string text, Action action)
