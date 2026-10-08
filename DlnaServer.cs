@@ -58,6 +58,11 @@ internal sealed class DlnaServer : IDisposable
             message => Message?.Invoke(this, message));
     }
 
+    /// <summary>
+    /// Fixed HTTP port so media and artwork URLs survive server restarts.
+    /// </summary>
+    public const int DefaultPort = 8210;
+
     public bool IsRunning => _listener is not null;
 
     public int Port { get; private set; }
@@ -79,8 +84,7 @@ internal sealed class DlnaServer : IDisposable
         _localAddress = NetworkHelper.GetLocalIPv4Address();
         _library = new DlnaContentLibrary(_mediaFolders, _shareVideos, _shareAudio, _shareImages);
         _cancellation = new CancellationTokenSource();
-        _listener = new TcpListener(IPAddress.Any, _requestedPort);
-        _listener.Start();
+        _listener = StartListener(_requestedPort);
         Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
         PowerKeepAwake.SetEnabled(_keepAwake);
         StartWatchers();
@@ -100,6 +104,23 @@ internal sealed class DlnaServer : IDisposable
         catch (Exception ex)
         {
             Message?.Invoke(this, $"Servidor activo, pero el anuncio DLNA no pudo abrir el puerto SSDP: {ex.Message}");
+        }
+    }
+
+    private TcpListener StartListener(int requestedPort)
+    {
+        var listener = new TcpListener(IPAddress.Any, requestedPort);
+        try
+        {
+            listener.Start();
+            return listener;
+        }
+        catch (SocketException ex) when (requestedPort != 0)
+        {
+            Message?.Invoke(this, $"El puerto {requestedPort} no esta disponible ({ex.SocketErrorCode}); se usara un puerto libre.");
+            var fallback = new TcpListener(IPAddress.Any, 0);
+            fallback.Start();
+            return fallback;
         }
     }
 

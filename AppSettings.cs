@@ -28,7 +28,7 @@ internal sealed class AppSettings
 
     public string ThemeMode { get; set; } = "System";
 
-    public int Port { get; set; }
+    public int Port { get; set; } = DlnaServer.DefaultPort;
 
     public string Uuid { get; set; } = Guid.NewGuid().ToString("D");
 }

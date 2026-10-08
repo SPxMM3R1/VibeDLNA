@@ -31,7 +31,134 @@ public sealed class CoreTests : IDisposable
         Assert.Equal(_root, settings.MediaFolders.Single());
         Assert.True(settings.ShareVideos);
         Assert.True(Guid.TryParse(settings.Uuid, out _));
-        Assert.Equal(0, settings.Port);
+        Assert.Equal(DlnaServer.DefaultPort, settings.Port);
+    }
+
+    [Fact]
+    public void NormalizeMigratesLegacyRandomPortToFixedPort()
+    {
+        var settings = new AppSettings { Port = 0 };
+
+        SettingsService.Normalize(settings);
+
+        Assert.Equal(DlnaServer.DefaultPort, settings.Port);
+    }
+
+    [Fact]
+    public async Task ServerFallsBackToFreePortWhenConfiguredPortIsBusy()
+    {
+        var blocker = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Any, 0);
+        blocker.Start();
+        var busyPort = ((System.Net.IPEndPoint)blocker.LocalEndpoint).Port;
+        try
+        {
+            using var server = new DlnaServer(
+                new[] { _root },
+                "VibeDLNA Test",
+                Guid.NewGuid().ToString("D"),
+                busyPort,
+                true,
+                false,
+                false,
+                false,
+                false,
+                new ThumbnailCache(Path.Combine(_root, "thumbnails"), new FailingThumbnailProvider(), new FixedDurationProvider(null)));
+            var messages = new List<string>();
+            server.Message += (_, message) => messages.Add(message);
+
+            await server.StartAsync();
+
+            Assert.NotEqual(busyPort, server.Port);
+            Assert.Contains(messages, message => message.Contains(busyPort.ToString()));
+            await server.StopAsync();
+        }
+        finally
+        {
+            blocker.Stop();
+        }
+    }
+
+    [Fact]
+    public void ObjectIdsStayStableWhenOtherSharedFoldersChange()
+    {
+        var movies = Path.Combine(_root, "Movies");
+        var series = Path.Combine(_root, "Series");
+        Directory.CreateDirectory(Path.Combine(series, "Season 1"));
+        Directory.CreateDirectory(movies);
+        File.WriteAllBytes(Path.Combine(series, "Season 1", "episode.mp4"), new byte[] { 1, 2, 3 });
+
+        static (string Root, string Folder, string Video) Ids(DlnaContentLibrary library, string rootTitle)
+        {
+            var root = Assert.Single(library.GetChildren("0"), entry => entry.Title == rootTitle);
+            var folder = Assert.Single(library.GetChildren(root.Id), entry => entry.IsDirectory);
+            var video = Assert.Single(library.GetChildren(folder.Id), entry => !entry.IsDirectory);
+            return (root.Id, folder.Id, video.Id);
+        }
+
+        var before = Ids(new DlnaContentLibrary(new[] { movies, series }, true, false, false), "Series");
+        var reordered = Ids(new DlnaContentLibrary(new[] { series, movies }, true, false, false), "Series");
+        var removed = Ids(new DlnaContentLibrary(new[] { series }, true, false, false), "Series");
+
+        Assert.Equal(before, reordered);
+        Assert.Equal(before, removed);
+        Assert.Matches("^R:[0-9a-f]{16}$", before.Root);
+        var reopened = new DlnaContentLibrary(new[] { series }, true, false, false);
+        Assert.Equal(before.Folder, reopened.GetMetadata(before.Video).ParentId);
+    }
+
+    [Fact]
+    public void LibraryRejectsStableObjectIdsOutsideSharedRoot()
+    {
+        var library = new DlnaContentLibrary(new[] { _root }, true, true, true);
+        var rootKey = DlnaContentLibrary.GetRootKey(_root);
+        var payload = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{rootKey}|..\\outside.mp4"))
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
+
+        Assert.Throws<UnauthorizedAccessException>(() => library.GetMetadata($"F:{payload}"));
+    }
+
+    [Fact]
+    public void DidlAnnouncesDurationMeasuredByWarmupOnly()
+    {
+        var videoPath = Path.Combine(_root, "timed.mp4");
+        File.WriteAllBytes(videoPath, new byte[] { 10, 20, 30 });
+        var library = new DlnaContentLibrary(new[] { _root }, true, false, false);
+        var rootId = Assert.Single(library.GetChildren("0")).Id;
+        var entry = Assert.Single(library.GetChildren(rootId), item => !item.IsDirectory);
+        var durationProvider = new FixedDurationProvider(new TimeSpan(0, 1, 2, 3, 450));
+        var cache = new ThumbnailCache(
+            Path.Combine(_root, "thumbnails"),
+            new RecordingThumbnailProvider(),
+            durationProvider);
+
+        var beforeWarmup = DlnaXml.BuildDidl(new[] { entry }, "http://127.0.0.1:1234", cache);
+        Assert.DoesNotContain("duration=", beforeWarmup);
+        Assert.Equal(0, durationProvider.Calls);
+
+        Assert.NotNull(cache.GetOrCreate(videoPath));
+        var afterWarmup = DlnaXml.BuildDidl(new[] { entry }, "http://127.0.0.1:1234", cache);
+
+        Assert.Contains("duration=\"1:02:03.450\"", afterWarmup);
+        Assert.Equal(1, durationProvider.Calls);
+
+        var restarted = new ThumbnailCache(
+            Path.Combine(_root, "thumbnails"),
+            new RecordingThumbnailProvider(),
+            durationProvider);
+        Assert.Equal(new TimeSpan(0, 1, 2, 3, 450), restarted.TryGetCachedDuration(videoPath));
+    }
+
+    [Theory]
+    [InlineData(0, 0, 0, 0, "0:00:00.000")]
+    [InlineData(0, 0, 5, 7, "0:00:05.007")]
+    [InlineData(27, 3, 9, 0, "27:03:09.000")]
+    public void DurationUsesUpnpFormat(int hours, int minutes, int seconds, int milliseconds, string expected)
+    {
+        var duration = new TimeSpan(0, hours, minutes, seconds, milliseconds);
+
+        Assert.Equal(expected, DlnaXml.FormatDuration(duration));
     }
 
     [Fact]
@@ -454,6 +581,25 @@ public sealed class CoreTests : IDisposable
     private sealed class FailingThumbnailProvider : IThumbnailProvider
     {
         public bool TrySave(string sourcePath, string targetPath) => false;
+    }
+
+    private sealed class FixedDurationProvider : IMediaDurationProvider
+    {
+        private readonly TimeSpan? _duration;
+        private int _calls;
+
+        public FixedDurationProvider(TimeSpan? duration)
+        {
+            _duration = duration;
+        }
+
+        public int Calls => Volatile.Read(ref _calls);
+
+        public TimeSpan? TryGetDuration(string sourcePath)
+        {
+            Interlocked.Increment(ref _calls);
+            return _duration;
+        }
     }
 
     public void Dispose()

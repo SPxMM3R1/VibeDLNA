@@ -173,9 +173,12 @@ internal static class SettingsService
             settings.Uuid = Guid.NewGuid().ToString("D");
         }
 
-        if (settings.Port is < 0 or > 65535)
+        // Port 0 was the old "random port" default: every restart changed the
+        // media and artwork URLs that clients had cached. Migrate it to the
+        // fixed DLNA port; DlnaServer falls back to a free port if it is busy.
+        if (settings.Port is <= 0 or > 65535)
         {
-            settings.Port = 0;
+            settings.Port = DlnaServer.DefaultPort;
         }
 
         if (!Enum.TryParse<AppThemeMode>(settings.ThemeMode, ignoreCase: true, out _))

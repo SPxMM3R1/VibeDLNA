@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Xml.Linq;
 
@@ -182,16 +183,22 @@ internal static class DlnaXml
             else
             {
                 var mediaUrl = $"{baseUrl}/media/{Uri.EscapeDataString(entry.Id)}/{Uri.EscapeDataString(Path.GetFileName(entry.FullPath))}";
+                var resource = new XElement(didl + "res",
+                    new XAttribute("protocolInfo", MediaTypes.GetProtocolInfo(entry.MimeType)),
+                    new XAttribute("size", entry.Size),
+                    mediaUrl);
+                if (thumbnailCache?.TryGetCachedDuration(entry.FullPath) is { } duration)
+                {
+                    resource.Add(new XAttribute("duration", FormatDuration(duration)));
+                }
+
                 var item = new XElement(didl + "item",
                     new XAttribute("id", entry.Id),
                     new XAttribute("parentID", entry.ParentId),
                     new XAttribute("restricted", "1"),
                     new XElement(dc + "title", entry.Title),
                     new XElement(upnp + "class", entry.UpnpClass),
-                    new XElement(didl + "res",
-                        new XAttribute("protocolInfo", MediaTypes.GetProtocolInfo(entry.MimeType)),
-                        new XAttribute("size", entry.Size),
-                        mediaUrl));
+                    resource);
 
                 if (thumbnailCache is not null
                     && thumbnailCache.TryGetCached(entry.FullPath) is { } thumbnailKey)
@@ -207,6 +214,14 @@ internal static class DlnaXml
 
         return new XDocument(root).ToString(SaveOptions.DisableFormatting);
     }
+
+    /// <summary>
+    /// UPnP res@duration format: H+:MM:SS.FFF.
+    /// </summary>
+    internal static string FormatDuration(TimeSpan duration) =>
+        string.Create(
+            CultureInfo.InvariantCulture,
+            $"{(long)duration.TotalHours}:{duration.Minutes:00}:{duration.Seconds:00}.{duration.Milliseconds:000}");
 
     public static string SoapResponse(string serviceType, string actionName, params XElement[] values)
     {

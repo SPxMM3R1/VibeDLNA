@@ -9,17 +9,22 @@ internal sealed class ThumbnailCache
     private readonly string _directory;
     private readonly string _indexPath;
     private readonly IThumbnailProvider _thumbnailProvider;
+    private readonly IMediaDurationProvider _durationProvider;
     private readonly object _indexSync = new();
     private readonly ConcurrentDictionary<string, Lazy<string?>> _inFlight = new(
         StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, CachedChecksum> _knownChecksums = new(
         StringComparer.OrdinalIgnoreCase);
 
-    public ThumbnailCache(string? directory = null, IThumbnailProvider? thumbnailProvider = null)
+    public ThumbnailCache(
+        string? directory = null,
+        IThumbnailProvider? thumbnailProvider = null,
+        IMediaDurationProvider? durationProvider = null)
     {
         _directory = Path.GetFullPath(directory ?? DefaultDirectory);
         _indexPath = Path.Combine(_directory, "index.json");
         _thumbnailProvider = thumbnailProvider ?? new WindowsThumbnailProvider();
+        _durationProvider = durationProvider ?? new WindowsMediaDurationProvider();
         Directory.CreateDirectory(_directory);
         LoadIndex();
     }
@@ -64,6 +69,14 @@ internal sealed class ThumbnailCache
                 && knownChecksum.LastWriteUtcTicks == fileInfo.LastWriteTimeUtc.Ticks)
             {
                 checksum = knownChecksum.Checksum;
+                if (knownChecksum.DurationTicks == DurationNotProbed)
+                {
+                    _knownChecksums[fullPath] = knownChecksum with
+                    {
+                        DurationTicks = ProbeDurationTicks(fullPath)
+                    };
+                    PersistIndex();
+                }
             }
             else
             {
@@ -72,7 +85,8 @@ internal sealed class ThumbnailCache
                 _knownChecksums[fullPath] = new CachedChecksum(
                     currentInfo.Length,
                     currentInfo.LastWriteTimeUtc.Ticks,
-                    checksum);
+                    checksum,
+                    ProbeDurationTicks(fullPath));
                 PersistIndex();
             }
         }
@@ -187,6 +201,30 @@ internal sealed class ThumbnailCache
         }
     }
 
+    /// <summary>
+    /// Returns the media duration measured by the warmup, without probing the
+    /// file on the request thread.
+    /// </summary>
+    public TimeSpan? TryGetCachedDuration(string filePath)
+    {
+        try
+        {
+            var fullPath = Path.GetFullPath(filePath);
+            if (!_knownChecksums.TryGetValue(fullPath, out var knownChecksum)
+                || knownChecksum.DurationTicks <= 0
+                || !IsCurrentSource(fullPath, knownChecksum))
+            {
+                return null;
+            }
+
+            return TimeSpan.FromTicks(knownChecksum.DurationTicks);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     internal string GetCachePathForTesting(string checksum) => GetCachePath(checksum);
 
     internal string IndexPathForTesting => _indexPath;
@@ -267,7 +305,34 @@ internal sealed class ThumbnailCache
     private string GetCachePath(string checksum) =>
         Path.Combine(_directory, checksum.ToLowerInvariant() + ".jpg");
 
-    private sealed record CachedChecksum(long Length, long LastWriteUtcTicks, string Checksum);
+    /// <summary>
+    /// Duration marker for index entries written before durations were stored.
+    /// Zero means "probed, unknown"; positive values are TimeSpan ticks.
+    /// </summary>
+    private const long DurationNotProbed = -1;
+
+    private long ProbeDurationTicks(string fullPath)
+    {
+        if (!MediaTypes.TryGet(fullPath, out var mediaType) || mediaType.Kind == MediaKind.Image)
+        {
+            return 0;
+        }
+
+        try
+        {
+            return _durationProvider.TryGetDuration(fullPath)?.Ticks ?? 0;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private sealed record CachedChecksum(
+        long Length,
+        long LastWriteUtcTicks,
+        string Checksum,
+        long DurationTicks);
 
     private sealed class PersistedChecksum
     {
@@ -278,6 +343,8 @@ internal sealed class ThumbnailCache
         public long LastWriteUtcTicks { get; set; }
 
         public string Checksum { get; set; } = string.Empty;
+
+        public long DurationTicks { get; set; } = DurationNotProbed;
     }
 
     private static readonly JsonSerializerOptions IndexSerializerOptions = new()
@@ -317,7 +384,8 @@ internal sealed class ThumbnailCache
                     _knownChecksums[Path.GetFullPath(entry.Path)] = new CachedChecksum(
                         entry.Length,
                         entry.LastWriteUtcTicks,
-                        entry.Checksum.ToLowerInvariant());
+                        entry.Checksum.ToLowerInvariant(),
+                        entry.DurationTicks < 0 ? DurationNotProbed : entry.DurationTicks);
                 }
                 catch
                 {
@@ -342,7 +410,8 @@ internal sealed class ThumbnailCache
                     Path = pair.Key,
                     Length = pair.Value.Length,
                     LastWriteUtcTicks = pair.Value.LastWriteUtcTicks,
-                    Checksum = pair.Value.Checksum
+                    Checksum = pair.Value.Checksum,
+                    DurationTicks = pair.Value.DurationTicks
                 })
                 .OrderBy(entry => entry.Path, StringComparer.OrdinalIgnoreCase)
                 .ToList();

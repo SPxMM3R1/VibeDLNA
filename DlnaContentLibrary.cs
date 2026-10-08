@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 
 namespace FolderDlnaServer;
@@ -13,7 +14,7 @@ internal sealed class DlnaContentLibrary
     {
         _roots = rootFolders
             .Where(Directory.Exists)
-            .Select((folder, index) => new SharedRoot(index, Path.GetFullPath(folder)))
+            .Select((folder, index) => CreateRoot(index, Path.GetFullPath(folder)))
             .ToList();
         _shareVideos = shareVideos;
         _shareAudio = shareAudio;
@@ -38,7 +39,7 @@ internal sealed class DlnaContentLibrary
 
         if (objectId.StartsWith("R:", StringComparison.Ordinal))
         {
-            var sharedRoot = GetRoot(ParseRootIndex(objectId[2..]));
+            var sharedRoot = GetRoot(objectId[2..]);
             var directoryInfo = new DirectoryInfo(sharedRoot.Path);
             return new DlnaEntry
             {
@@ -60,7 +61,7 @@ internal sealed class DlnaContentLibrary
         }
 
         var decoded = DecodeEntryPath(objectId[2..]);
-        var root = GetRoot(decoded.RootIndex);
+        var root = GetRoot(decoded.RootKey);
         var fullPath = ResolvePath(root, decoded.RelativePath);
         if (isDirectory)
         {
@@ -73,7 +74,7 @@ internal sealed class DlnaContentLibrary
             return new DlnaEntry
             {
                 Id = objectId,
-                ParentId = GetParentId(root.Index, decoded.RelativePath),
+                ParentId = GetParentId(root, decoded.RelativePath),
                 Title = directoryInfo.Name,
                 FullPath = fullPath,
                 RelativePath = decoded.RelativePath,
@@ -91,7 +92,7 @@ internal sealed class DlnaContentLibrary
         return new DlnaEntry
         {
             Id = objectId,
-            ParentId = GetParentId(root.Index, decoded.RelativePath),
+            ParentId = GetParentId(root, decoded.RelativePath),
             Title = Path.GetFileNameWithoutExtension(fileInfo.Name),
             FullPath = fileInfo.FullName,
             RelativePath = decoded.RelativePath,
@@ -112,7 +113,7 @@ internal sealed class DlnaContentLibrary
                     var directoryInfo = new DirectoryInfo(root.Path);
                     return new DlnaEntry
                     {
-                        Id = $"R:{root.Index}",
+                        Id = $"R:{root.Key}",
                         ParentId = "0",
                         Title = directoryInfo.Name,
                         FullPath = root.Path,
@@ -131,8 +132,8 @@ internal sealed class DlnaContentLibrary
         }
 
         var root = objectId.StartsWith("R:", StringComparison.Ordinal)
-            ? GetRoot(ParseRootIndex(objectId[2..]))
-            : GetRoot(DecodeEntryPath(objectId[2..]).RootIndex);
+            ? GetRoot(objectId[2..])
+            : GetRoot(DecodeEntryPath(objectId[2..]).RootKey);
         var entries = new List<DlnaEntry>();
 
         try
@@ -142,7 +143,7 @@ internal sealed class DlnaContentLibrary
                 var relativePath = GetRelativePath(root, directory);
                 entries.Add(new DlnaEntry
                 {
-                    Id = EncodeId(isDirectory: true, root.Index, relativePath),
+                    Id = EncodeId(isDirectory: true, root, relativePath),
                     ParentId = parent.Id,
                     Title = Path.GetFileName(directory),
                     FullPath = directory,
@@ -170,7 +171,7 @@ internal sealed class DlnaContentLibrary
                 var relativePath = GetRelativePath(root, file);
                 entries.Add(new DlnaEntry
                 {
-                    Id = EncodeId(isDirectory: false, root.Index, relativePath),
+                    Id = EncodeId(isDirectory: false, root, relativePath),
                     ParentId = parent.Id,
                     Title = Path.GetFileNameWithoutExtension(fileInfo.Name),
                     FullPath = fileInfo.FullName,
@@ -242,25 +243,46 @@ internal sealed class DlnaContentLibrary
         return fullPath;
     }
 
-    private SharedRoot GetRoot(int index) =>
-        _roots.FirstOrDefault(root => root.Index == index)
-        ?? throw new DirectoryNotFoundException("Carpeta compartida no encontrada.");
+    /// <summary>
+    /// Resolves a root by its stable key. Numeric keys are the legacy
+    /// position-based ids of earlier versions and keep resolving while the
+    /// folder list is unchanged.
+    /// </summary>
+    private SharedRoot GetRoot(string key)
+    {
+        var root = int.TryParse(key, out var legacyIndex)
+            ? _roots.FirstOrDefault(item => item.Index == legacyIndex)
+            : _roots.FirstOrDefault(item => item.Key.Equals(key, StringComparison.Ordinal));
+        return root ?? throw new DirectoryNotFoundException("Carpeta compartida no encontrada.");
+    }
 
-    private static int ParseRootIndex(string value) =>
-        int.TryParse(value, out var index) ? index : throw new FileNotFoundException("Raiz no valida.");
+    /// <summary>
+    /// Root keys derive from the folder path, not from its position, so adding,
+    /// removing or reordering shared folders keeps every other object id stable.
+    /// </summary>
+    internal static string GetRootKey(string fullPath)
+    {
+        var normalized = Path.TrimEndingDirectorySeparator(Path.GetFullPath(fullPath))
+            .ToUpperInvariant();
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
+        return Convert.ToHexString(hash, 0, 8).ToLowerInvariant();
+    }
+
+    private static SharedRoot CreateRoot(int index, string fullPath) =>
+        new(index, GetRootKey(fullPath), fullPath);
 
     private static string GetRelativePath(SharedRoot root, string fullPath) =>
         Path.GetRelativePath(root.Path, fullPath);
 
-    private static string GetParentId(int rootIndex, string relativePath)
+    private static string GetParentId(SharedRoot root, string relativePath)
     {
         var parentPath = Path.GetDirectoryName(relativePath);
-        return string.IsNullOrEmpty(parentPath) ? $"R:{rootIndex}" : EncodeId(isDirectory: true, rootIndex, parentPath);
+        return string.IsNullOrEmpty(parentPath) ? $"R:{root.Key}" : EncodeId(isDirectory: true, root, parentPath);
     }
 
-    private static string EncodeId(bool isDirectory, int rootIndex, string relativePath)
+    private static string EncodeId(bool isDirectory, SharedRoot root, string relativePath)
     {
-        var bytes = Encoding.UTF8.GetBytes($"{rootIndex}|{relativePath}");
+        var bytes = Encoding.UTF8.GetBytes($"{root.Key}|{relativePath}");
         var encoded = Convert.ToBase64String(bytes)
             .TrimEnd('=')
             .Replace('+', '-')
@@ -274,20 +296,20 @@ internal sealed class DlnaContentLibrary
         padded = padded.PadRight(padded.Length + ((4 - padded.Length % 4) % 4), '=');
         var decoded = Encoding.UTF8.GetString(Convert.FromBase64String(padded));
         var separator = decoded.IndexOf('|');
-        if (separator <= 0 || !int.TryParse(decoded[..separator], out var rootIndex))
+        if (separator <= 0)
         {
             throw new FileNotFoundException("ObjectID no valido.");
         }
 
-        return new DecodedEntryPath(rootIndex, decoded[(separator + 1)..]);
+        return new DecodedEntryPath(decoded[..separator], decoded[(separator + 1)..]);
     }
 
-    private sealed record SharedRoot(int Index, string Path)
+    private sealed record SharedRoot(int Index, string Key, string Path)
     {
         public string PathWithSeparator { get; } = Path.EndsWith(System.IO.Path.DirectorySeparatorChar)
             ? Path
             : Path + System.IO.Path.DirectorySeparatorChar;
     }
 
-    private sealed record DecodedEntryPath(int RootIndex, string RelativePath);
+    private sealed record DecodedEntryPath(string RootKey, string RelativePath);
 }

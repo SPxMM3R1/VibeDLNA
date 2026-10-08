@@ -185,7 +185,7 @@ El servidor actual incluye:
 - límites para cabeceras y cuerpo HTTP;
 - registro persistente de inicio, detención, anuncios y errores.
 
-La configuración actual utiliza Port: 0, por lo que Windows asigna un puerto aleatorio en cada inicio. SSDP puede anunciarlo, pero algunas TVs cachean la dirección anterior. Un puerto DLNA fijo es un posible trabajo futuro y no debe implementarse sin probar migración, conflictos de puerto y compatibilidad.
+Desde 2026-10-06 el servidor usa el puerto HTTP fijo 8210 (`DlnaServer.DefaultPort`). Las configuraciones antiguas con Port: 0 migran a 8210 y, si el puerto está ocupado, el servidor usa uno libre y lo registra. El contrato con VibeDLNA Player está en contrato_vibedlna_player.md.
 
 Los nombres con espacios deben seguir escapándose en la URL. Para un archivo como video loco.mp4, la URL debe usar video%20loco.mp4, mientras que DIDL-Lite debe conservar el título humano. El servidor agrega:
 
