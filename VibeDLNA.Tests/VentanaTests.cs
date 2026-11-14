@@ -77,8 +77,8 @@ public sealed class VentanaTests : IDisposable
     }
 
     [Theory]
-    [InlineData(-10, "ahora")]
-    [InlineData(-59, "ahora")]
+    [InlineData(-10, "hace un momento")]
+    [InlineData(-59, "hace un momento")]
     [InlineData(-60, "hace 1 minuto")]
     [InlineData(-120 * 60, "hace 2 horas")]
     [InlineData(-3 * 24 * 60 * 60, "hace 3 días")]

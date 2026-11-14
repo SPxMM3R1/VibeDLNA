@@ -93,14 +93,14 @@ internal static class ViewFormat
         Math.Round(Math.Clamp(percent, 0, 100), MidpointRounding.AwayFromZero).ToString("0", Invariant);
 
     /// <summary>
-    /// «hace 2 horas», «hace 1 minuto», «ahora». Lo que pasó hace más de 30 días se dice «hace más de un mes».
+    /// «hace 2 horas», «hace 1 minuto», «hace un momento». Lo que pasó hace más de 30 días se dice «hace más de un mes».
     /// </summary>
     public static string Ago(DateTimeOffset when, DateTimeOffset now)
     {
         var elapsed = now - when;
         if (elapsed < TimeSpan.FromMinutes(1))
         {
-            return "ahora";
+            return "hace un momento";
         }
 
         if (elapsed < TimeSpan.FromHours(1))
