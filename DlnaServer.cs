@@ -496,16 +496,24 @@ internal sealed class DlnaServer : IDisposable
         var start = 0L;
         var end = fileInfo.Length - 1;
         var isPartial = false;
+        var rangeStart = 0L;
+        var rangeEnd = 0L;
+        var rangeKind = RangeRequestKind.None;
+        if (request.Headers.TryGetValue("Range", out var rangeHeader))
+        {
+            rangeKind = ParseRange(rangeHeader, fileInfo.Length, out rangeStart, out rangeEnd);
+        }
 
-        if (request.Headers.TryGetValue("Range", out var rangeHeader) && TryParseRange(rangeHeader, fileInfo.Length, out var rangeStart, out var rangeEnd))
+        if (rangeKind == RangeRequestKind.Partial)
         {
             start = rangeStart;
             end = rangeEnd;
             isPartial = true;
         }
 
-        if (start < 0 || end < start || end >= fileInfo.Length)
+        if (rangeKind == RangeRequestKind.Unsatisfiable)
         {
+            // RFC 7233: el tramo empieza en o después del final del archivo.
             _viewing.RecordRangeOutOfBounds(ClientOf(request), filePath);
             await WriteResponseAsync(stream, 416, "Range Not Satisfiable", "text/plain", Array.Empty<byte>(), request.Method, cancellationToken,
                 new Dictionary<string, string> { ["Content-Range"] = $"bytes */{fileInfo.Length}" });
@@ -705,47 +713,71 @@ internal sealed class DlnaServer : IDisposable
         return $"inline; filename=\"{asciiName}\"; filename*=UTF-8''{utf8Name}";
     }
 
-    private static bool TryParseRange(string rangeHeader, long fileLength, out long start, out long end)
+    /// <summary>
+    /// Interpreta una cabecera Range de un solo tramo (RFC 7233). <see cref="RangeRequestKind.None"/>: se
+    /// sirve el archivo completo (sin cabecera o no válida). <see cref="RangeRequestKind.Unsatisfiable"/>:
+    /// el tramo empieza en o después del final del archivo, y se responde 416.
+    /// </summary>
+    internal static RangeRequestKind ParseRange(string rangeHeader, long fileLength, out long start, out long end)
     {
         start = 0;
         end = fileLength - 1;
 
         if (!rangeHeader.StartsWith("bytes=", StringComparison.OrdinalIgnoreCase))
         {
-            return false;
+            return RangeRequestKind.None;
         }
 
         var range = rangeHeader["bytes=".Length..].Split(',', 2)[0].Trim();
         var parts = range.Split('-', 2);
         if (parts.Length != 2)
         {
-            return false;
+            return RangeRequestKind.None;
         }
 
         if (parts[0].Length == 0)
         {
+            // Tramo final («-500»): los últimos N bytes.
             if (!long.TryParse(parts[1], out var suffixLength) || suffixLength <= 0)
             {
-                return false;
+                return RangeRequestKind.None;
+            }
+
+            if (fileLength <= 0)
+            {
+                return RangeRequestKind.Unsatisfiable;
             }
 
             start = Math.Max(0, fileLength - suffixLength);
             end = fileLength - 1;
-            return true;
+            return RangeRequestKind.Partial;
         }
 
-        if (!long.TryParse(parts[0], out start))
+        if (!long.TryParse(parts[0], out var first) || first < 0)
         {
-            return false;
+            return RangeRequestKind.None;
         }
 
+        if (first >= fileLength)
+        {
+            start = first;
+            return RangeRequestKind.Unsatisfiable;
+        }
+
+        var last = fileLength - 1;
         if (parts[1].Length > 0 && long.TryParse(parts[1], out var parsedEnd))
         {
-            end = parsedEnd;
+            if (parsedEnd < first)
+            {
+                return RangeRequestKind.None;
+            }
+
+            last = Math.Min(parsedEnd, fileLength - 1);
         }
 
-        end = Math.Min(end, fileLength - 1);
-        return start <= end;
+        start = first;
+        end = last;
+        return RangeRequestKind.Partial;
     }
 
     private string BuildLandingPage()
@@ -869,4 +901,12 @@ internal sealed class DlnaServer : IDisposable
         uint.TryParse(GetXmlValue(document, localName, "0"), out var value) ? value : 0;
 
     private DlnaContentLibrary Library => _library ?? throw new InvalidOperationException("Servidor no iniciado.");
+}
+
+/// <summary>Resultado de interpretar una cabecera Range (ver <see cref="DlnaServer"/>).</summary>
+internal enum RangeRequestKind
+{
+    None,
+    Partial,
+    Unsatisfiable
 }

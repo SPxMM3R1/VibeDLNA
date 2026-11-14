@@ -1,3 +1,4 @@
+using System.Net;
 using Xunit;
 
 namespace FolderDlnaServer.Tests;
@@ -221,6 +222,77 @@ public sealed class VentanaTests : IDisposable
         Assert.Equal(0, overview.Videos);
         Assert.Equal(1, overview.Audio);
         tracker.Stop();
+    }
+
+    [Theory]
+    [InlineData("bytes=0-99", 1000, "Partial", 0L, 99L)]
+    [InlineData("bytes=900-", 1000, "Partial", 900L, 999L)]
+    [InlineData("bytes=-100", 1000, "Partial", 900L, 999L)]
+    [InlineData("bytes=990-5000", 1000, "Partial", 990L, 999L)]
+    [InlineData("bytes=1000-1100", 1000, "Unsatisfiable", 1000L, 999L)]
+    [InlineData("bytes=5000-5100", 1000, "Unsatisfiable", 5000L, 999L)]
+    [InlineData("bytes=0-0", 0, "Unsatisfiable", 0L, -1L)]
+    [InlineData("bytes=-0", 1000, "None", 0L, 999L)]
+    [InlineData("bytes=50-10", 1000, "None", 0L, 999L)]
+    [InlineData("items=0-10", 1000, "None", 0L, 999L)]
+    [InlineData("bytes=abc-10", 1000, "None", 0L, 999L)]
+    public void RangoSigueElRfc7233(string header, long length, string expected, long expectedStart, long expectedEnd)
+    {
+        var kind = DlnaServer.ParseRange(header, length, out var start, out var end);
+
+        Assert.Equal(expected, kind.ToString());
+        if (kind != RangeRequestKind.None)
+        {
+            Assert.Equal(expectedStart, start);
+            Assert.Equal(expectedEnd, end);
+        }
+    }
+
+    [Fact]
+    public async Task RangoFueraDelArchivoResponde416ConTamanoYSeRegistra()
+    {
+        var folder = Path.Combine(_root, "Media");
+        Directory.CreateDirectory(folder);
+        File.WriteAllBytes(Path.Combine(folder, "Amor.mp4"), new byte[1000]);
+        var cache = new ThumbnailCache(Path.Combine(_root, "thumbnails"), new WritingThumbnailProvider(), new NoDurationProvider(), new EmptyTechnicalProvider());
+        using var server = new DlnaServer(
+            new[] { folder },
+            "VibeDLNA Test",
+            Guid.NewGuid().ToString("D"),
+            0,
+            true,
+            false,
+            false,
+            false,
+            cache,
+            Path.Combine(_root, "appdata"));
+        var messages = new List<string>();
+        server.Message += (_, message) => messages.Add(message);
+        await server.StartAsync();
+        var library = new DlnaContentLibrary(new[] { folder }, true, false, false);
+        var entry = Assert.Single(library.GetChildren("R:0"), item => !item.IsDirectory);
+        var url = $"{server.BaseUrl}/media/{Uri.EscapeDataString(entry.Id)}/{Uri.EscapeDataString("Amor.mp4")}";
+
+        using var client = new HttpClient();
+        using (var outside = new HttpRequestMessage(HttpMethod.Get, url))
+        {
+            outside.Headers.TryAddWithoutValidation("Range", "bytes=5000-5100");
+            using var response = await client.SendAsync(outside);
+
+            Assert.Equal(HttpStatusCode.RequestedRangeNotSatisfiable, response.StatusCode);
+            Assert.Equal(1000, response.Content.Headers.ContentRange?.Length);
+        }
+
+        using (var inside = new HttpRequestMessage(HttpMethod.Get, url))
+        {
+            inside.Headers.TryAddWithoutValidation("Range", "bytes=0-99");
+            using var response = await client.SendAsync(inside);
+
+            Assert.Equal(HttpStatusCode.PartialContent, response.StatusCode);
+            Assert.Equal(100, (await response.Content.ReadAsByteArrayAsync()).Length);
+        }
+
+        Assert.Contains(messages, message => message.Contains("pidió un rango fuera del archivo") && message.EndsWith("Amor.mp4 (416)"));
     }
 
     public void Dispose()
