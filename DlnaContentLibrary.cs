@@ -9,6 +9,9 @@ internal sealed class DlnaContentLibrary
     private readonly bool _shareVideos;
     private readonly bool _shareAudio;
     private readonly bool _shareImages;
+    private readonly object _countSync = new();
+    private int _countGeneration;
+    private int _videoCount = -1;
 
     public DlnaContentLibrary(IEnumerable<string> rootFolders, bool shareVideos, bool shareAudio, bool shareImages)
     {
@@ -19,6 +22,64 @@ internal sealed class DlnaContentLibrary
         _shareVideos = shareVideos;
         _shareAudio = shareAudio;
         _shareImages = shareImages;
+    }
+
+    /// <summary>
+    /// Videos compartidos contados por la última pasada de indexado, o null mientras no haya
+    /// terminado (contrato §B: lo que no se sepa, se omite).
+    /// </summary>
+    public int? VideoCount
+    {
+        get
+        {
+            var count = Volatile.Read(ref _videoCount);
+            return count >= 0 ? count : null;
+        }
+    }
+
+    /// <summary>
+    /// Cuenta en segundo plano los videos compartidos recorriendo solo los listados de
+    /// carpetas; nunca abre archivos. Una pasada nueva invalida la anterior.
+    /// </summary>
+    public Task StartCountingVideos(CancellationToken serverCancellation)
+    {
+        var generation = Interlocked.Increment(ref _countGeneration);
+        var roots = _roots.Select(root => root.Path).ToArray();
+        var countVideos = _shareVideos;
+
+        bool IsCurrent() =>
+            !serverCancellation.IsCancellationRequested
+            && Volatile.Read(ref _countGeneration) == generation;
+
+        return Task.Run(() =>
+        {
+            var count = 0;
+            try
+            {
+                if (countVideos)
+                {
+                    foreach (var file in EnumerateFilesSafely(roots, IsCurrent))
+                    {
+                        if (MediaTypes.TryGet(file, out var mediaType) && mediaType.Kind == MediaKind.Video)
+                        {
+                            count++;
+                        }
+                    }
+                }
+
+                lock (_countSync)
+                {
+                    if (IsCurrent())
+                    {
+                        Volatile.Write(ref _videoCount, count);
+                    }
+                }
+            }
+            catch
+            {
+                // El conteo es informativo: si falla, la raíz simplemente no muestra videos.
+            }
+        }, CancellationToken.None);
     }
 
     public DlnaEntry GetMetadata(string objectId)
@@ -33,7 +94,8 @@ internal sealed class DlnaContentLibrary
                 FullPath = string.Empty,
                 RelativePath = string.Empty,
                 IsDirectory = true,
-                ChildCount = _roots.Count
+                ChildCount = _roots.Count,
+                Description = MediaDescription.FolderSummary(_roots.Count, VideoCount)
             };
         }
 
@@ -270,6 +332,50 @@ internal sealed class DlnaContentLibrary
 
     private static SharedRoot CreateRoot(int index, string fullPath) =>
         new(index, GetRootKey(fullPath), fullPath);
+
+    /// <summary>
+    /// Recorre las carpetas compartidas en profundidad y devuelve sus archivos. Ignora las
+    /// carpetas que no se pueden listar y los enlaces de carpeta (para no entrar en bucle).
+    /// </summary>
+    private static IEnumerable<string> EnumerateFilesSafely(IEnumerable<string> roots, Func<bool> keepGoing)
+    {
+        var pending = new Stack<string>(roots);
+        while (pending.Count > 0 && keepGoing())
+        {
+            var directory = pending.Pop();
+            var files = Array.Empty<string>();
+            var directories = Array.Empty<string>();
+            try
+            {
+                files = Directory.GetFiles(directory);
+                directories = Directory.GetDirectories(directory);
+            }
+            catch
+            {
+                // Carpeta que desapareció o que el usuario de Windows no puede listar.
+            }
+
+            foreach (var file in files)
+            {
+                yield return file;
+            }
+
+            foreach (var child in directories)
+            {
+                try
+                {
+                    if ((new DirectoryInfo(child).Attributes & FileAttributes.ReparsePoint) == 0)
+                    {
+                        pending.Push(child);
+                    }
+                }
+                catch
+                {
+                    // Subcarpeta inaccesible: se omite.
+                }
+            }
+        }
+    }
 
     private static string GetRelativePath(SharedRoot root, string fullPath) =>
         Path.GetRelativePath(root.Path, fullPath);

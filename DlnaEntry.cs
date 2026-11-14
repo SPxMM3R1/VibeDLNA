@@ -21,4 +21,9 @@ internal sealed class DlnaEntry
     public string MimeType { get; init; } = string.Empty;
 
     public string UpnpClass { get; init; } = "object.container.storageFolder";
+
+    /// <summary>
+    /// Texto para <c>dc:description</c>. Solo lo usa el objeto raíz (§B); null en el resto.
+    /// </summary>
+    public string? Description { get; init; }
 }

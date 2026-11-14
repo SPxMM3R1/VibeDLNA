@@ -18,6 +18,7 @@ internal sealed class DlnaServer : IDisposable
     private readonly bool _keepAwake;
     private readonly ThumbnailCache _thumbnailCache;
     private readonly ThumbnailWarmupService _thumbnailWarmupService;
+    private readonly ViewingActivity _viewing;
     private DlnaContentLibrary? _library;
     private TcpListener? _listener;
     private CancellationTokenSource? _cancellation;
@@ -56,7 +57,15 @@ internal sealed class DlnaServer : IDisposable
         _thumbnailWarmupService = new ThumbnailWarmupService(
             _thumbnailCache,
             message => Message?.Invoke(this, message));
+        _viewing = new ViewingActivity(SettingsService.AppDataFolder);
+        _viewing.Activity += (_, text) => Message?.Invoke(this, text);
     }
+
+    /// <summary>
+    /// Actividad de reproducción (§D) para la ventana: «viendo ahora», «seguir viendo» y
+    /// reproductores vistos.
+    /// </summary>
+    internal ViewingActivity Viewing => _viewing;
 
     /// <summary>
     /// Fixed HTTP port so media and artwork URLs survive server restarts.
@@ -84,6 +93,7 @@ internal sealed class DlnaServer : IDisposable
         _localAddress = NetworkHelper.GetLocalIPv4Address();
         _library = new DlnaContentLibrary(_mediaFolders, _shareVideos, _shareAudio, _shareImages);
         _cancellation = new CancellationTokenSource();
+        _ = _library.StartCountingVideos(_cancellation.Token);
         _listener = StartListener(_requestedPort);
         Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
         PowerKeepAwake.SetEnabled(_keepAwake);
@@ -160,6 +170,7 @@ internal sealed class DlnaServer : IDisposable
         }
 
         await thumbnailStopTask;
+        _viewing.Flush();
 
         _listener = null;
         _acceptLoopTask = null;
@@ -193,6 +204,7 @@ internal sealed class DlnaServer : IDisposable
         _library = null;
         Port = 0;
         _thumbnailWarmupService.Dispose();
+        _viewing.Flush();
     }
 
     public void Rescan()
@@ -213,6 +225,7 @@ internal sealed class DlnaServer : IDisposable
                 _mediaFolders,
                 IsAllowedThumbnailSource,
                 _cancellation.Token);
+            _ = _library.StartCountingVideos(_cancellation.Token);
         }
 
         Message?.Invoke(this, "Biblioteca DLNA actualizada.");
@@ -258,7 +271,8 @@ internal sealed class DlnaServer : IDisposable
                     return;
                 }
 
-            await RouteRequestAsync(request, stream, cancellationToken);
+                request.RemoteAddress = RemoteAddressOf(client);
+                await RouteRequestAsync(request, stream, cancellationToken);
         }
         catch
         {
@@ -356,6 +370,8 @@ internal sealed class DlnaServer : IDisposable
         {
             var action = GetSoapAction(request);
             var body = XDocument.Parse(request.BodyText);
+            var client = ClientOf(request);
+            _viewing.NoteClient(client);
 
             string response;
             if (action == "Browse")
@@ -371,6 +387,14 @@ internal sealed class DlnaServer : IDisposable
                 var pagedEntries = requestedCount == 0
                     ? entries.Skip((int)startingIndex).ToArray()
                     : entries.Skip((int)startingIndex).Take((int)requestedCount).ToArray();
+
+                // «Abrió una carpeta»: solo la primera página de una carpeta, no cada página.
+                if (browseFlag.Equals("BrowseDirectChildren", StringComparison.OrdinalIgnoreCase)
+                    && startingIndex == 0
+                    && objectId != "0")
+                {
+                    _viewing.RecordFolderOpened(client, Library.GetMetadata(objectId).FullPath, pagedEntries.Length, totalMatches);
+                }
 
                 var didl = DlnaXml.BuildDidl(pagedEntries, BaseUrl, _thumbnailCache);
                 response = DlnaXml.SoapResponse(
@@ -479,6 +503,23 @@ internal sealed class DlnaServer : IDisposable
             await WriteResponseAsync(stream, 416, "Range Not Satisfiable", "text/plain", Array.Empty<byte>(), request.Method, cancellationToken,
                 new Dictionary<string, string> { ["Content-Range"] = $"bytes */{fileInfo.Length}" });
             return;
+        }
+
+        // Actividad (§D): solo pedidos GET de video que se van a servir.
+        var client = ClientOf(request);
+        if (mediaType.Kind == MediaKind.Video && request.Method.Equals("GET", StringComparison.OrdinalIgnoreCase))
+        {
+            _viewing.RecordVideoRange(
+                client,
+                filePath,
+                start,
+                fileInfo.Length,
+                _thumbnailCache.TryGetCachedDuration(filePath),
+                _thumbnailCache.TryGetCachedTechnical(filePath));
+        }
+        else
+        {
+            _viewing.NoteClient(client);
         }
 
         var contentLength = end - start + 1;
@@ -773,6 +814,23 @@ internal sealed class DlnaServer : IDisposable
         }
 
         return new Uri("http://localhost" + target, UriKind.Absolute);
+    }
+
+    private static ClientIdentity ClientOf(HttpRequestData request)
+    {
+        var userAgent = request.Headers.TryGetValue("User-Agent", out var value) ? value : null;
+        return ClientIdentity.Parse(userAgent, request.RemoteAddress);
+    }
+
+    private static string RemoteAddressOf(TcpClient client)
+    {
+        if (client.Client.RemoteEndPoint is not IPEndPoint endPoint)
+        {
+            return string.Empty;
+        }
+
+        var address = endPoint.Address.IsIPv4MappedToIPv6 ? endPoint.Address.MapToIPv4() : endPoint.Address;
+        return address.ToString();
     }
 
     private static string GetSoapAction(HttpRequestData request)

@@ -171,14 +171,20 @@ internal static class DlnaXml
         {
             if (entry.IsDirectory)
             {
-                root.Add(new XElement(didl + "container",
+                var container = new XElement(didl + "container",
                     new XAttribute("id", entry.Id),
                     new XAttribute("parentID", entry.ParentId),
                     new XAttribute("restricted", "1"),
                     new XAttribute("searchable", "0"),
                     new XAttribute("childCount", entry.ChildCount),
                     new XElement(dc + "title", entry.Title),
-                    new XElement(upnp + "class", "object.container.storageFolder")));
+                    new XElement(upnp + "class", "object.container.storageFolder"));
+                if (!string.IsNullOrEmpty(entry.Description))
+                {
+                    container.Add(new XElement(dc + "description", entry.Description));
+                }
+
+                root.Add(container);
             }
             else
             {
@@ -192,6 +198,25 @@ internal static class DlnaXml
                     resource.Add(new XAttribute("duration", FormatDuration(duration)));
                 }
 
+                var technical = thumbnailCache?.TryGetCachedTechnical(entry.FullPath);
+                if (technical is not null)
+                {
+                    if (MediaDescription.Resolution(technical) is { } resolution)
+                    {
+                        resource.Add(new XAttribute("resolution", resolution));
+                    }
+
+                    if (MediaDescription.BitrateBytesPerSecond(technical) is { } bitrate)
+                    {
+                        resource.Add(new XAttribute("bitrate", bitrate));
+                    }
+
+                    if (MediaDescription.AudioChannelCount(technical) is { } channels)
+                    {
+                        resource.Add(new XAttribute("nrAudioChannels", channels));
+                    }
+                }
+
                 var item = new XElement(didl + "item",
                     new XAttribute("id", entry.Id),
                     new XAttribute("parentID", entry.ParentId),
@@ -199,6 +224,10 @@ internal static class DlnaXml
                     new XElement(dc + "title", entry.Title),
                     new XElement(upnp + "class", entry.UpnpClass),
                     resource);
+                if (technical is not null && MediaDescription.Describe(technical) is { } description)
+                {
+                    item.Add(new XElement(dc + "description", description));
+                }
 
                 if (thumbnailCache is not null
                     && thumbnailCache.TryGetCached(entry.FullPath) is { } thumbnailKey)

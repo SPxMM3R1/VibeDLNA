@@ -10,21 +10,31 @@ internal sealed class ThumbnailCache
     private readonly string _indexPath;
     private readonly IThumbnailProvider _thumbnailProvider;
     private readonly IMediaDurationProvider _durationProvider;
+    private readonly IMediaTechnicalProvider _technicalProvider;
     private readonly object _indexSync = new();
     private readonly ConcurrentDictionary<string, Lazy<string?>> _inFlight = new(
         StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, CachedChecksum> _knownChecksums = new(
         StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Datos técnicos ya medidos, por SHA-256 del contenido: el mismo archivo en otra ruta
+    /// no vuelve a medirse.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, MediaTechnicalInfo> _technicalByChecksum = new(
+        StringComparer.Ordinal);
+
     public ThumbnailCache(
         string? directory = null,
         IThumbnailProvider? thumbnailProvider = null,
-        IMediaDurationProvider? durationProvider = null)
+        IMediaDurationProvider? durationProvider = null,
+        IMediaTechnicalProvider? technicalProvider = null)
     {
         _directory = Path.GetFullPath(directory ?? DefaultDirectory);
         _indexPath = Path.Combine(_directory, "index.json");
         _thumbnailProvider = thumbnailProvider ?? new WindowsThumbnailProvider();
         _durationProvider = durationProvider ?? new WindowsMediaDurationProvider();
+        _technicalProvider = technicalProvider ?? new WindowsMediaTechnicalProvider();
         Directory.CreateDirectory(_directory);
         LoadIndex();
     }
@@ -69,11 +79,14 @@ internal sealed class ThumbnailCache
                 && knownChecksum.LastWriteUtcTicks == fileInfo.LastWriteTimeUtc.Ticks)
             {
                 checksum = knownChecksum.Checksum;
-                if (knownChecksum.DurationTicks == DurationNotProbed)
+                if (knownChecksum.DurationTicks == DurationNotProbed || knownChecksum.Technical is null)
                 {
                     _knownChecksums[fullPath] = knownChecksum with
                     {
-                        DurationTicks = ProbeDurationTicks(fullPath)
+                        DurationTicks = knownChecksum.DurationTicks == DurationNotProbed
+                            ? ProbeDurationTicks(fullPath)
+                            : knownChecksum.DurationTicks,
+                        Technical = knownChecksum.Technical ?? ProbeTechnical(fullPath, checksum)
                     };
                     PersistIndex();
                 }
@@ -86,7 +99,8 @@ internal sealed class ThumbnailCache
                     currentInfo.Length,
                     currentInfo.LastWriteTimeUtc.Ticks,
                     checksum,
-                    ProbeDurationTicks(fullPath));
+                    ProbeDurationTicks(fullPath),
+                    ProbeTechnical(fullPath, checksum));
                 PersistIndex();
             }
         }
@@ -225,6 +239,30 @@ internal sealed class ThumbnailCache
         }
     }
 
+    /// <summary>
+    /// Returns the technical data (resolution, bitrate, codecs, channels) measured by the
+    /// warmup, without reading the file on the request thread. Null when not measured yet.
+    /// </summary>
+    public MediaTechnicalInfo? TryGetCachedTechnical(string filePath)
+    {
+        try
+        {
+            var fullPath = Path.GetFullPath(filePath);
+            if (!_knownChecksums.TryGetValue(fullPath, out var knownChecksum)
+                || knownChecksum.Technical is null
+                || !IsCurrentSource(fullPath, knownChecksum))
+            {
+                return null;
+            }
+
+            return knownChecksum.Technical;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     internal string GetCachePathForTesting(string checksum) => GetCachePath(checksum);
 
     internal string IndexPathForTesting => _indexPath;
@@ -328,11 +366,42 @@ internal sealed class ThumbnailCache
         }
     }
 
+    /// <summary>
+    /// Mide los datos técnicos de video o audio. Las imágenes y los fallos quedan como
+    /// registro vacío («medido, desconocido») para no volver a medirlos en cada calentamiento.
+    /// </summary>
+    private MediaTechnicalInfo ProbeTechnical(string fullPath, string checksum)
+    {
+        if (!MediaTypes.TryGet(fullPath, out var mediaType) || mediaType.Kind == MediaKind.Image)
+        {
+            return new MediaTechnicalInfo();
+        }
+
+        if (_technicalByChecksum.TryGetValue(checksum, out var known))
+        {
+            return known;
+        }
+
+        MediaTechnicalInfo measured;
+        try
+        {
+            measured = _technicalProvider.TryGetInfo(fullPath);
+        }
+        catch
+        {
+            measured = new MediaTechnicalInfo();
+        }
+
+        _technicalByChecksum[checksum] = measured;
+        return measured;
+    }
+
     private sealed record CachedChecksum(
         long Length,
         long LastWriteUtcTicks,
         string Checksum,
-        long DurationTicks);
+        long DurationTicks,
+        MediaTechnicalInfo? Technical = null);
 
     private sealed class PersistedChecksum
     {
@@ -345,6 +414,9 @@ internal sealed class ThumbnailCache
         public string Checksum { get; set; } = string.Empty;
 
         public long DurationTicks { get; set; } = DurationNotProbed;
+
+        /// <summary>Null en índices anteriores a 1.1.0: se miden la próxima vez que el calentamiento pase.</summary>
+        public MediaTechnicalInfo? Technical { get; set; }
     }
 
     private static readonly JsonSerializerOptions IndexSerializerOptions = new()
@@ -381,11 +453,17 @@ internal sealed class ThumbnailCache
 
                 try
                 {
+                    var checksum = entry.Checksum.ToLowerInvariant();
                     _knownChecksums[Path.GetFullPath(entry.Path)] = new CachedChecksum(
                         entry.Length,
                         entry.LastWriteUtcTicks,
-                        entry.Checksum.ToLowerInvariant(),
-                        entry.DurationTicks < 0 ? DurationNotProbed : entry.DurationTicks);
+                        checksum,
+                        entry.DurationTicks < 0 ? DurationNotProbed : entry.DurationTicks,
+                        entry.Technical);
+                    if (entry.Technical is not null)
+                    {
+                        _technicalByChecksum.TryAdd(checksum, entry.Technical);
+                    }
                 }
                 catch
                 {
@@ -411,7 +489,8 @@ internal sealed class ThumbnailCache
                     Length = pair.Value.Length,
                     LastWriteUtcTicks = pair.Value.LastWriteUtcTicks,
                     Checksum = pair.Value.Checksum,
-                    DurationTicks = pair.Value.DurationTicks
+                    DurationTicks = pair.Value.DurationTicks,
+                    Technical = pair.Value.Technical
                 })
                 .OrderBy(entry => entry.Path, StringComparer.OrdinalIgnoreCase)
                 .ToList();

@@ -17,6 +17,9 @@ internal sealed class HttpRequestData
 
     public byte[] Body { get; init; } = Array.Empty<byte>();
 
+    /// <summary>IP de quien hizo el pedido; la asigna el servidor al aceptar la conexión.</summary>
+    public string RemoteAddress { get; set; } = string.Empty;
+
     public string BodyText => Encoding.UTF8.GetString(Body);
 
     public static async Task<HttpRequestData?> ReadAsync(Stream stream, CancellationToken cancellationToken)
