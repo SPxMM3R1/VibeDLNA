@@ -61,7 +61,8 @@ public sealed class CoreTests : IDisposable
                 false,
                 false,
                 false,
-                new ThumbnailCache(Path.Combine(_root, "thumbnails"), new FailingThumbnailProvider(), new FixedDurationProvider(null)));
+                new ThumbnailCache(Path.Combine(_root, "thumbnails"), new FailingThumbnailProvider(), new FixedDurationProvider(null)),
+            dataDirectory: Path.Combine(_root, "appdata"));
             var messages = new List<string>();
             server.Message += (_, message) => messages.Add(message);
 
@@ -297,7 +298,8 @@ public sealed class CoreTests : IDisposable
             false,
             false,
             false,
-            cache);
+            cache,
+            dataDirectory: Path.Combine(_root, "appdata"));
         await server.StartAsync();
 
         using var client = new HttpClient();
@@ -324,7 +326,8 @@ public sealed class CoreTests : IDisposable
             false,
             false,
             false,
-            cache);
+            cache,
+            dataDirectory: Path.Combine(_root, "appdata"));
         await server.StartAsync();
         var warmupTask = server.ThumbnailWarmupTask;
         await warmupTask;
@@ -354,7 +357,8 @@ public sealed class CoreTests : IDisposable
             false,
             false,
             false,
-            cache);
+            cache,
+            dataDirectory: Path.Combine(_root, "appdata"));
 
         await server.StartAsync();
         await server.ThumbnailWarmupTask;
@@ -403,7 +407,8 @@ public sealed class CoreTests : IDisposable
             true,
             true,
             false,
-            cache);
+            cache,
+            dataDirectory: Path.Combine(_root, "appdata"));
 
         await server.StartAsync();
         await server.ThumbnailWarmupTask;
@@ -451,7 +456,8 @@ public sealed class CoreTests : IDisposable
             false,
             false,
             false,
-            cache);
+            cache,
+            dataDirectory: Path.Combine(_root, "appdata"));
         await server.StartAsync();
 
         using var client = new HttpClient();
@@ -508,7 +514,9 @@ public sealed class CoreTests : IDisposable
             true,
             false,
             false,
-            false);
+            false,
+            new ThumbnailCache(Path.Combine(_root, "thumbnails"), new FailingThumbnailProvider(), new FixedDurationProvider(null)),
+            Path.Combine(_root, "appdata"));
         await server.StartAsync();
 
         using var client = new HttpClient();

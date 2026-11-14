@@ -41,7 +41,8 @@ internal sealed class DlnaServer : IDisposable
         bool shareAudio,
         bool shareImages,
         bool autoRescan,
-        ThumbnailCache? thumbnailCache = null)
+        ThumbnailCache? thumbnailCache = null,
+        string? dataDirectory = null)
     {
         _mediaFolders = mediaFolders.Where(Directory.Exists).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         _friendlyName = friendlyName;
@@ -56,7 +57,7 @@ internal sealed class DlnaServer : IDisposable
             _thumbnailCache,
             message => Message?.Invoke(this, message));
         _tracker = new LibraryTracker(_thumbnailCache, () => !_thumbnailWarmupService.CurrentTask.IsCompleted);
-        _viewing = new ViewingActivity(SettingsService.AppDataFolder);
+        _viewing = new ViewingActivity(dataDirectory ?? SettingsService.AppDataFolder);
         _viewing.Activity += (_, text) => Message?.Invoke(this, text);
     }
 
