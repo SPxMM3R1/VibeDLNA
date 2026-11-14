@@ -15,10 +15,10 @@ internal sealed class DlnaServer : IDisposable
     private readonly bool _shareAudio;
     private readonly bool _shareImages;
     private readonly bool _autoRescan;
-    private readonly bool _keepAwake;
     private readonly ThumbnailCache _thumbnailCache;
     private readonly ThumbnailWarmupService _thumbnailWarmupService;
     private readonly ViewingActivity _viewing;
+    private readonly LibraryTracker _tracker;
     private DlnaContentLibrary? _library;
     private TcpListener? _listener;
     private CancellationTokenSource? _cancellation;
@@ -41,7 +41,6 @@ internal sealed class DlnaServer : IDisposable
         bool shareAudio,
         bool shareImages,
         bool autoRescan,
-        bool keepAwake,
         ThumbnailCache? thumbnailCache = null)
     {
         _mediaFolders = mediaFolders.Where(Directory.Exists).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -52,14 +51,19 @@ internal sealed class DlnaServer : IDisposable
         _shareAudio = shareAudio;
         _shareImages = shareImages;
         _autoRescan = autoRescan;
-        _keepAwake = keepAwake;
         _thumbnailCache = thumbnailCache ?? new ThumbnailCache();
         _thumbnailWarmupService = new ThumbnailWarmupService(
             _thumbnailCache,
             message => Message?.Invoke(this, message));
+        _tracker = new LibraryTracker(_thumbnailCache, () => !_thumbnailWarmupService.CurrentTask.IsCompleted);
         _viewing = new ViewingActivity(SettingsService.AppDataFolder);
         _viewing.Activity += (_, text) => Message?.Invoke(this, text);
     }
+
+    /// <summary>
+    /// Resumen de la biblioteca para la ventana (1.1.0): conteos por tipo y carpeta y miniaturas listas.
+    /// </summary>
+    internal LibraryOverview Overview => _tracker.Snapshot();
 
     /// <summary>
     /// Actividad de reproducción (§D) para la ventana: «viendo ahora», «seguir viendo» y
@@ -70,7 +74,7 @@ internal sealed class DlnaServer : IDisposable
     /// <summary>
     /// Fixed HTTP port so media and artwork URLs survive server restarts.
     /// </summary>
-    public const int DefaultPort = 8210;
+    public static int DefaultPort => DevMode.IsEnabled ? DevMode.DevPort : 8210;
 
     public bool IsRunning => _listener is not null;
 
@@ -94,9 +98,9 @@ internal sealed class DlnaServer : IDisposable
         _library = new DlnaContentLibrary(_mediaFolders, _shareVideos, _shareAudio, _shareImages);
         _cancellation = new CancellationTokenSource();
         _ = _library.StartCountingVideos(_cancellation.Token);
+        _tracker.Begin(_mediaFolders, _shareVideos, _shareAudio, _shareImages, _cancellation.Token);
         _listener = StartListener(_requestedPort);
         Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
-        PowerKeepAwake.SetEnabled(_keepAwake);
         StartWatchers();
         _thumbnailWarmupService.Start(
             _mediaFolders,
@@ -154,7 +158,7 @@ internal sealed class DlnaServer : IDisposable
         }
 
         StopWatchers();
-        PowerKeepAwake.SetEnabled(false);
+        _tracker.Stop();
         _listener?.Stop();
 
         try
@@ -186,7 +190,7 @@ internal sealed class DlnaServer : IDisposable
         _cancellation?.Cancel();
         _listener?.Stop();
         StopWatchers();
-        PowerKeepAwake.SetEnabled(false);
+        _tracker.Stop();
         _ssdpServer?.Dispose();
         _ssdpServer = null;
         try
@@ -226,6 +230,7 @@ internal sealed class DlnaServer : IDisposable
                 IsAllowedThumbnailSource,
                 _cancellation.Token);
             _ = _library.StartCountingVideos(_cancellation.Token);
+            _tracker.Begin(_mediaFolders, _shareVideos, _shareAudio, _shareImages, _cancellation.Token);
         }
 
         Message?.Invoke(this, "Biblioteca DLNA actualizada.");
@@ -500,6 +505,7 @@ internal sealed class DlnaServer : IDisposable
 
         if (start < 0 || end < start || end >= fileInfo.Length)
         {
+            _viewing.RecordRangeOutOfBounds(ClientOf(request), filePath);
             await WriteResponseAsync(stream, 416, "Range Not Satisfiable", "text/plain", Array.Empty<byte>(), request.Method, cancellationToken,
                 new Dictionary<string, string> { ["Content-Range"] = $"bytes */{fileInfo.Length}" });
             return;

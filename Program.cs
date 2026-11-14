@@ -7,7 +7,7 @@ internal static class Program
     {
         ApplicationConfiguration.Initialize();
 
-        using var mutex = new Mutex(true, "VibeDLNA.SingleInstance", out var isFirstInstance);
+        using var mutex = new Mutex(true, DevMode.SingleInstanceName, out var isFirstInstance);
         if (!isFirstInstance)
         {
             if (!args.Any(static arg => arg.Equals("--minimized", StringComparison.OrdinalIgnoreCase)))

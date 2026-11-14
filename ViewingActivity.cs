@@ -54,6 +54,8 @@ internal sealed class KnownPlayer
 /// </summary>
 internal sealed record WatchingNow(
     string ClientName,
+    string ClientKey,
+    string ClientDisplayName,
     string FilePath,
     string Title,
     TimeSpan? Position,
@@ -131,6 +133,19 @@ internal sealed class ViewingActivity
     }
 
     /// <summary>
+    /// Registra un pedido de rango que cae fuera del archivo (HTTP 416). Solo informa en el registro.
+    /// </summary>
+    public void RecordRangeOutOfBounds(ClientIdentity client, string filePath)
+    {
+        lock (_sync)
+        {
+            NoteClientLocked(client, _clock());
+        }
+
+        Raise(ViewingRules.RangeOutOfBounds(client.Name, Path.GetFileName(filePath)));
+    }
+
+    /// <summary>
     /// Registra un pedido de un rango de un video. Marca «viendo» durante 15 s, actualiza
     /// «seguir viendo» si el cliente tiene id de Player y avisa una vez por cada grupo de
     /// pedidos del mismo archivo y reproductor (60 s).
@@ -158,6 +173,8 @@ internal sealed class ViewingActivity
             var startsGroup = !_recent.ContainsKey(key);
             _recent[key] = new RangeState(
                 client.Name,
+                client.Key,
+                client.DisplayName,
                 filePath,
                 title,
                 duration,
@@ -193,6 +210,8 @@ internal sealed class ViewingActivity
                 .OrderByDescending(state => state.LastRequest)
                 .Select(state => new WatchingNow(
                     state.ClientName,
+                    state.ClientKey,
+                    state.ClientDisplayName,
                     state.FilePath,
                     state.Title,
                     state.Progress.Position,
@@ -365,6 +384,8 @@ internal sealed class ViewingActivity
 
     private sealed record RangeState(
         string ClientName,
+        string ClientKey,
+        string ClientDisplayName,
         string FilePath,
         string Title,
         TimeSpan? Duration,

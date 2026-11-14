@@ -42,7 +42,7 @@ internal sealed class ThumbnailCache
     public static string DefaultDirectory =>
         Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "VibeDLNA",
+            DevMode.AppDataFolderName,
             "ThumbnailCache");
 
     public string DirectoryPath => _directory;

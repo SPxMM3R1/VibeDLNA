@@ -72,6 +72,10 @@ internal static class ViewingRules
     public static string FolderOpened(string clientName, string folderPath, int returned, int total) =>
         $"{clientName} abrió {folderPath} ({returned} de {total})";
 
+    /// <summary>Frase del registro: «Pixel 8 pidió un rango fuera del archivo · Amor.mp4 (416)».</summary>
+    public static string RangeOutOfBounds(string clientName, string fileName) =>
+        $"{clientName} pidió un rango fuera del archivo · {fileName} (416)";
+
     /// <summary>Frase del registro: «Hisense 65A6 reproduce Dune (2160p HEVC)».</summary>
     public static string VideoStarted(string clientName, string title, string? quality) =>
         quality is null

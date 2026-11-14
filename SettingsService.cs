@@ -15,7 +15,7 @@ internal static class SettingsService
     };
 
     public static string AppDataFolder =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VibeDLNA");
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), DevMode.AppDataFolderName);
 
     private static string LegacyAppDataFolder =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "FolderDlnaServer");
@@ -68,6 +68,12 @@ internal static class SettingsService
 
     public static void SyncStartup(AppSettings settings)
     {
+        // El modo de desarrollo nunca toca el inicio con Windows: esa entrada es de la instalación real.
+        if (DevMode.IsEnabled)
+        {
+            return;
+        }
+
         using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: true)
             ?? Registry.CurrentUser.CreateSubKey(RunKeyPath, writable: true);
 

@@ -438,8 +438,7 @@ internal sealed class MainForm : Form
                 _settings.ShareVideos,
                 _settings.ShareAudio,
                 _settings.ShareImages,
-                _settings.AutoRescanLibrary,
-                _settings.KeepAwake);
+                _settings.AutoRescanLibrary);
             _server.Message += (_, message) => BeginInvoke(() => Log(message));
             await _server.StartAsync();
 

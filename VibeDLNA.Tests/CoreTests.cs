@@ -61,7 +61,6 @@ public sealed class CoreTests : IDisposable
                 false,
                 false,
                 false,
-                false,
                 new ThumbnailCache(Path.Combine(_root, "thumbnails"), new FailingThumbnailProvider(), new FixedDurationProvider(null)));
             var messages = new List<string>();
             server.Message += (_, message) => messages.Add(message);
@@ -298,7 +297,6 @@ public sealed class CoreTests : IDisposable
             false,
             false,
             false,
-            false,
             cache);
         await server.StartAsync();
 
@@ -323,7 +321,6 @@ public sealed class CoreTests : IDisposable
             Guid.NewGuid().ToString("D"),
             0,
             true,
-            false,
             false,
             false,
             false,
@@ -354,7 +351,6 @@ public sealed class CoreTests : IDisposable
             Guid.NewGuid().ToString("D"),
             0,
             true,
-            false,
             false,
             false,
             false,
@@ -407,7 +403,6 @@ public sealed class CoreTests : IDisposable
             true,
             true,
             false,
-            false,
             cache);
 
         await server.StartAsync();
@@ -453,7 +448,6 @@ public sealed class CoreTests : IDisposable
             Guid.NewGuid().ToString("D"),
             0,
             true,
-            false,
             false,
             false,
             false,
@@ -512,7 +506,6 @@ public sealed class CoreTests : IDisposable
             Guid.NewGuid().ToString("D"),
             0,
             true,
-            false,
             false,
             false,
             false);
