@@ -10,7 +10,8 @@ internal static class Program
         using var mutex = new Mutex(true, DevMode.SingleInstanceName, out var isFirstInstance);
         if (!isFirstInstance)
         {
-            if (!args.Any(static arg => arg.Equals("--minimized", StringComparison.OrdinalIgnoreCase)))
+            // En modo de desarrollo no se abre ningún cuadro en la pantalla del usuario.
+            if (!DevMode.IsEnabled && !args.Any(static arg => arg.Equals("--minimized", StringComparison.OrdinalIgnoreCase)))
             {
                 MessageBox.Show(
                     "VibeDLNA ya esta abierto. Revisa el area de notificacion.",
