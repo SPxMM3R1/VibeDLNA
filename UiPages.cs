@@ -7,10 +7,12 @@ internal sealed class InicioPage : PageView
     private readonly StatsCard _stats = new();
     private readonly RecordList _viewing = new();
     private readonly LogList _log = new();
+    private readonly ToolTip _approximate = new();
 
     public InicioPage(IAppActions actions)
     {
         AddBlock(new PageHeader("Inicio", "Lo que tu PC está compartiendo y quién lo está viendo."), 28);
+        _approximate.SetToolTip(_viewing, "Posición aproximada: el servidor la deduce de los pedidos de video, no la recibe del reproductor.");
 
         _hero.Power.Click += (_, _) => actions.ToggleServer();
         _hero.Copy.Click += (_, _) => actions.CopyAddress();
