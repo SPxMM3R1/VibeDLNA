@@ -59,6 +59,7 @@ internal sealed class MainForm : Form, IAppActions
     private readonly Toast _toast = new();
 
     private AppSettings _settings = new();
+    private bool _startHidden;
     private AppPalette _palette = AppPalette.Dark;
     private AppThemeMode _themeMode = AppThemeMode.Dark;
     private DlnaServer? _server;
@@ -89,6 +90,15 @@ internal sealed class MainForm : Form, IAppActions
     {
         _requestedStartMinimized = requestedStartMinimized;
         Ui.Scale = DeviceDpi / 96f;
+
+        // La configuración se lee antes de mostrar nada: con arranque oculto, la ventana nunca aparece.
+        _settings = SettingsService.Load();
+        _startHidden = requestedStartMinimized && _settings.StartMinimized && _settings.MinimizeToTray;
+        if (_startHidden)
+        {
+            Opacity = 0;
+            ShowInTaskbar = false;
+        }
 
         AutoScaleMode = AutoScaleMode.None;
         FormBorderStyle = FormBorderStyle.None;
@@ -456,7 +466,6 @@ internal sealed class MainForm : Form, IAppActions
 
     private async Task OnLoadedAsync()
     {
-        _settings = SettingsService.Load();
         _themeMode = ParseThemeMode(_settings.ThemeMode);
         RefreshLocalAddress();
         _idleViewing = new ViewingActivity(SettingsService.AppDataFolder);
@@ -464,10 +473,14 @@ internal sealed class MainForm : Form, IAppActions
         _timer.Start();
         AddLog("App lista.");
 
+        if (!File.Exists(SettingsService.SettingsPath))
+        {
+            AddLog($"No hay configuración guardada en {SettingsService.AppDataFolder}: se usan valores por defecto.");
+        }
+
         if (SettingsService.LastLoadWarning is { } warning)
         {
-            AddLog(warning);
-            MessageBox.Show(this, warning, "VibeDLNA", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            ShowDialog(warning, MessageBoxIcon.Warning);
         }
 
         try
@@ -503,9 +516,15 @@ internal sealed class MainForm : Form, IAppActions
         }
 
         _hasShown = true;
-        if (_requestedStartMinimized && _settings.StartMinimized && _settings.MinimizeToTray)
+        if (_startHidden)
         {
-            BeginInvoke(HideToTray);
+            // Se oculta sin que se vea; la opacidad vuelve a 1 para cuando el usuario abra la ventana.
+            BeginInvoke(() =>
+            {
+                HideToTray();
+                Opacity = 1;
+                ShowInTaskbar = true;
+            });
         }
     }
 
@@ -523,6 +542,8 @@ internal sealed class MainForm : Form, IAppActions
 
     private void ShowFromTray()
     {
+        Opacity = 1;
+        ShowInTaskbar = true;
         Show();
         WindowState = FormWindowState.Normal;
         Activate();
@@ -557,18 +578,14 @@ internal sealed class MainForm : Form, IAppActions
         var validFolders = GetValidMediaFolders();
         if (validFolders.Count == 0)
         {
-            MessageBox.Show(
-                this,
-                "Agrega al menos una carpeta válida antes de iniciar el servidor.",
-                "VibeDLNA",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Warning);
+            ShowDialog("Agrega al menos una carpeta válida antes de iniciar el servidor.", MessageBoxIcon.Warning);
             return;
         }
 
         _serverBusy = true;
         try
         {
+            AddLog($"Iniciando el servidor con {validFolders.Count} carpeta(s)…");
             _server?.Dispose();
             _server = new DlnaServer(
                 validFolders,
@@ -592,12 +609,7 @@ internal sealed class MainForm : Form, IAppActions
             _server = null;
             SetAppIcons(active: false);
             AddLog($"Error al iniciar: {ex.Message}");
-            MessageBox.Show(
-                this,
-                $"No se pudo iniciar el servidor:\n\n{ex.Message}",
-                "VibeDLNA",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Error);
+            ShowDialog($"No se pudo iniciar el servidor:\n\n{ex.Message}", MessageBoxIcon.Error);
         }
         finally
         {
@@ -758,6 +770,23 @@ internal sealed class MainForm : Form, IAppActions
     private static AppThemeMode ParseThemeMode(string value) =>
         Enum.TryParse<AppThemeMode>(value, ignoreCase: true, out var mode) ? mode : AppThemeMode.Dark;
 
+    /// <summary>
+    /// Muestra un aviso en producción. En modo de desarrollo no abre ventanas en la pantalla del usuario:
+    /// deja la línea en el registro y sigue.
+    /// </summary>
+    private void ShowDialog(string text, MessageBoxIcon icon)
+    {
+        var line = text.Replace("\n", " ").Trim();
+        if (DevMode.IsEnabled)
+        {
+            AddLog($"[dev, sin ventana] {line}");
+            return;
+        }
+
+        AddLog(line);
+        MessageBox.Show(this, text, "VibeDLNA", MessageBoxButtons.OK, icon);
+    }
+
     private bool PersistSettings()
     {
         try
@@ -767,13 +796,7 @@ internal sealed class MainForm : Form, IAppActions
         }
         catch (Exception ex)
         {
-            AddLog($"No se pudo guardar la configuración: {ex.Message}");
-            MessageBox.Show(
-                this,
-                $"No se pudo guardar la configuración.\n\n{ex.Message}",
-                "VibeDLNA",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Error);
+            ShowDialog($"No se pudo guardar la configuración.\n\n{ex.Message}", MessageBoxIcon.Error);
             return false;
         }
     }
