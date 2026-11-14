@@ -4,16 +4,14 @@ App de Windows para compartir carpetas como servidor DLNA/UPnP en la red local.
 
 ## Uso
 
-1. Abre `VibeDLNA.exe`.
-2. Selecciona la carpeta que quieres compartir.
-3. Ajusta el nombre que vera la TV o reproductor.
-4. Marca las opciones que quieras:
-   - Iniciar el servidor al abrir la app.
-   - Iniciar con Windows.
-   - Abrir minimizada cuando inicia con Windows.
-   - Quedar en el area de notificacion al cerrar la ventana.
-5. Cambia entre modo claro y oscuro con el boton de sol/luna.
-6. Guarda opciones y pulsa **Iniciar**.
+1. Abre `VibeDLNA.exe`. La ventana tiene cinco secciones en el riel izquierdo:
+   - **Inicio**: el botón de encendido comparte o detiene el servidor; la dirección para la TV se copia con **Copiar**; **Reescanear** vuelve a revisar las carpetas. Muestra cuántos videos, canciones e imágenes hay, cuántas miniaturas están listas, lo que se está viendo ahora y los últimos movimientos.
+   - **Carpetas**: agrega o quita carpetas compartidas, con su estado (lista, escaneando o no disponible), y elige qué se comparte: video, música, imágenes y detección de cambios.
+   - **Reproductores**: los equipos que pidieron algo al servidor y lo que cada uno dejó a medio ver.
+   - **Actividad**: el registro de la sesión, con filtros por tipo (reproducción, navegación, servidor, errores) y búsqueda. El registro completo queda en `%APPDATA%\VibeDLNA\VibeDLNA.log`.
+   - **Opciones**: nombre en la TV, dirección, compartir al abrir la app, inicio con Windows, cerrar a la bandeja, evitar que el PC se suspenda mientras alguien ve algo, y actualizaciones. Cada cambio se guarda al instante.
+2. Cambia entre modo claro y oscuro con el botón ☾ / ☀ de la barra de título.
+3. Cerrar la ventana la deja en el área de notificación si la opción está activada. Desde la bandeja puedes mostrarla, iniciar o detener el servidor, o salir.
 
 ## Compilacion
 
@@ -42,6 +40,10 @@ La firma Authenticode es opcional y requiere un certificado instalado:
 ```powershell
 .\build-release.ps1 -SigningCertificateThumbprint "HUELLA_DEL_CERTIFICADO"
 ```
+
+### Modo de desarrollo (solo Debug)
+
+En una compilación Debug, con la variable `VIBEDLNA_DEV=1`, la app usa otro mutex, la carpeta `%APPDATA%\VibeDLNA-dev`, la caché de miniaturas `%LOCALAPPDATA%\VibeDLNA-dev`, el puerto 8211 y el nombre «VibeDLNA DEV». No escribe el inicio con Windows. Así puede correr junto a una instalación real sin compartir su configuración. En Release no existe.
 
 ## Notas
 
