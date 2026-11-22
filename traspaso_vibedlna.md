@@ -1,5 +1,5 @@
 # traspaso de vibedlna
-fecha 2026-11-14
+fecha 2026-11-22
 servidor DLNA Windows
 WinForms y .NET 8
 base 590da53 (v1.0.9); ampliacion 1.1.0 del servidor en commits locales, sin push, tag ni release
@@ -40,3 +40,7 @@ HTTP SSDP updater CI checksum
   - «Agregar carpeta» abre el diálogo nativo; no se automatizó la prueba. Se probó quitar carpeta y la configuración de desarrollo.
   - Contrato §6 y §8 y el lado Player (0.4.0) siguen pendientes; no se tocó el contrato en esta entrega.
   - Prueba en TV física: pendiente.
+
+## 1.1.1 (2026-11-22)
+- Maximizar: la ventana no tiene WS_CAPTION, así que Windows la maximizaba a todo el monitor, encima de la barra de tareas, y el recorte de WM_NCCALCSIZE (SM_CXSIZEFRAME + SM_CXPADDEDBORDER = 8) no coincidía con el borde real (7), dejando una franja de 1 px. Ahora `WM_GETMINMAXINFO` fija la posición y el tamaño maximizados al área de trabajo del monitor (`MonitorFromWindow`/`GetMonitorInfo`) y `WM_NCCALCSIZE` recorta el área cliente a esa misma área. Probado en modo dev: maximizada 0,0–1920,1040 (pantalla 1920×1080 con barra de 40 px), restaurada vuelve a 1180×720.
+- Arranque con Windows: las carpetas del usuario están en un disco USB (E:, WD Elements) que se monta después del inicio de sesión. La app registraba «carpetas no disponibles» y no volvía a intentar. Ahora, con «compartir al abrir», si falta alguna carpeta, `StartWhenFoldersAppearAsync` revisa cada 5 s (en el timer de 1 s): inicia el servidor cuando aparecen, o comparte lo disponible y reinicia al llegar el resto. Detener a mano cancela la espera. Probado en modo dev renombrando la carpeta de prueba: arrancó 4 s después de aparecer.

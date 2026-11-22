@@ -12,6 +12,8 @@ internal sealed class MainForm : Form, IAppActions
     private const int WmSettingChange = 0x001A;
     private const int WmNcCalcSize = 0x0083;
     private const int WmNcHitTest = 0x0084;
+    private const int WmGetMinMaxInfo = 0x0024;
+    private const uint MonitorDefaultToNearest = 2;
     private const int WsThickFrame = 0x00040000;
     private const int WsMinimizeBox = 0x00020000;
     private const int WsMaximizeBox = 0x00010000;
@@ -25,8 +27,6 @@ internal sealed class MainForm : Form, IAppActions
     private const int HtBottom = 15;
     private const int HtBottomLeft = 16;
     private const int HtBottomRight = 17;
-    private const int SmCxSizeFrame = 32;
-    private const int SmCxPaddedBorder = 92;
 
     private enum TitleButton
     {
@@ -71,6 +71,8 @@ internal sealed class MainForm : Form, IAppActions
     private bool _hasShown;
     private bool _serverBusy;
     private bool _keepAwakeActive;
+    private bool _waitingForFolders;
+    private int _folderCheckTicks;
     private bool _updateBusy;
     private bool _updateAvailable;
     private bool _updateChecked;
@@ -142,7 +144,11 @@ internal sealed class MainForm : Form, IAppActions
         Load += async (_, _) => await OnLoadedAsync();
         Shown += (_, _) => HideIfStartupRequested();
         FormClosing += async (_, e) => await OnFormClosingAsync(e);
-        _timer.Tick += (_, _) => Render();
+        _timer.Tick += async (_, _) =>
+        {
+            Render();
+            await StartWhenFoldersAppearAsync();
+        };
     }
 
     protected override CreateParams CreateParams
@@ -179,20 +185,32 @@ internal sealed class MainForm : Form, IAppActions
     {
         if (message.Msg == WmNcCalcSize && message.WParam != IntPtr.Zero)
         {
-            // Sin marco: el área cliente ocupa toda la ventana. Al maximizar, se retira el borde invisible.
+            // Sin marco: el área cliente ocupa toda la ventana. Maximizada, el área cliente es el área de
+            // trabajo del monitor: sin el borde invisible y sin tapar la barra de tareas.
             // Se pregunta al sistema (IsZoomed): WindowState va por detrás durante la restauración.
-            if (IsZoomed(Handle))
+            if (IsZoomed(Handle) && TryGetMonitorAreas(out _, out var work))
             {
                 var rectangle = Marshal.PtrToStructure<NativeRect>(message.LParam);
-                var frame = GetSystemMetrics(SmCxSizeFrame) + GetSystemMetrics(SmCxPaddedBorder);
-                rectangle.Left += frame;
-                rectangle.Top += frame;
-                rectangle.Right -= frame;
-                rectangle.Bottom -= frame;
+                rectangle.Left = Math.Max(rectangle.Left, work.Left);
+                rectangle.Top = Math.Max(rectangle.Top, work.Top);
+                rectangle.Right = Math.Min(rectangle.Right, work.Right);
+                rectangle.Bottom = Math.Min(rectangle.Bottom, work.Bottom);
                 Marshal.StructureToPtr(rectangle, message.LParam, false);
             }
 
             message.Result = IntPtr.Zero;
+            return;
+        }
+
+        if (message.Msg == WmGetMinMaxInfo && TryGetMonitorAreas(out var monitor, out var workArea))
+        {
+            // Una ventana sin WS_CAPTION se maximiza a todo el monitor, encima de la barra de tareas.
+            // Se fija el tamaño maximizado al área de trabajo, sin borde invisible alrededor.
+            base.WndProc(ref message);
+            var info = Marshal.PtrToStructure<MinMaxInfo>(message.LParam);
+            info.MaxPosition = new NativePoint(workArea.Left - monitor.Left, workArea.Top - monitor.Top);
+            info.MaxSize = new NativePoint(workArea.Right - workArea.Left, workArea.Bottom - workArea.Top);
+            Marshal.StructureToPtr(info, message.LParam, false);
             return;
         }
 
@@ -492,6 +510,15 @@ internal sealed class MainForm : Form, IAppActions
             AddLog($"No se pudo actualizar el inicio con Windows: {ex.Message}");
         }
 
+        // Un disco USB o de red puede montarse después de iniciar sesión: si falta alguna carpeta, la
+        // app sigue mirando y arranca (o reinicia) el servidor cuando aparece.
+        _waitingForFolders = _settings.AutoStartServer
+            && GetValidMediaFolders().Count < ConfiguredFolderCount();
+        if (_waitingForFolders)
+        {
+            AddLog("Falta alguna carpeta configurada: el servidor se inicia cuando esté disponible.");
+        }
+
         if (_settings.AutoStartServer && GetValidMediaFolders().Count > 0)
         {
             await StartServerAsync();
@@ -502,7 +529,7 @@ internal sealed class MainForm : Form, IAppActions
         }
         else if (GetValidMediaFolders().Count == 0)
         {
-            AddLog("Las carpetas configuradas no estan disponibles. El servidor no se inicio.");
+            AddLog("Las carpetas configuradas todavía no están disponibles.");
         }
 
         Render();
@@ -565,6 +592,8 @@ internal sealed class MainForm : Form, IAppActions
 
         if (_server is { IsRunning: true })
         {
+            // Detenerlo a mano deja de esperar carpetas que falten.
+            _waitingForFolders = false;
             await StopServerAsync();
         }
         else
@@ -750,6 +779,50 @@ internal sealed class MainForm : Form, IAppActions
         catch
         {
             _localIp = "127.0.0.1";
+        }
+    }
+
+    private int ConfiguredFolderCount() =>
+        _settings.MediaFolders
+            .Where(folder => !string.IsNullOrWhiteSpace(folder))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
+
+    /// <summary>
+    /// Cada 5 s, mientras falte una carpeta del arranque automático: si ya aparecieron todas, inicia el
+    /// servidor o lo reinicia para sumar las que faltaban. Detener el servidor a mano deja de esperar.
+    /// </summary>
+    private async Task StartWhenFoldersAppearAsync()
+    {
+        if (!_waitingForFolders || _serverBusy || ++_folderCheckTicks % 5 != 0)
+        {
+            return;
+        }
+
+        var valid = GetValidMediaFolders().Count;
+        var running = _server is { IsRunning: true };
+        if (valid < ConfiguredFolderCount())
+        {
+            // Siguen faltando carpetas: si ninguna corría y ya hay alguna, se comparte lo que hay.
+            if (valid > 0 && !running)
+            {
+                AddLog("Hay carpetas disponibles: se inicia el servidor y se sigue esperando las demás.");
+                await StartServerAsync();
+            }
+
+            return;
+        }
+
+        _waitingForFolders = false;
+        if (running)
+        {
+            AddLog("Aparecieron las carpetas que faltaban: se reinicia el servidor.");
+            await RestartServerAsync();
+        }
+        else
+        {
+            AddLog("Las carpetas ya están disponibles: se inicia el servidor.");
+            await StartServerAsync();
         }
     }
 
@@ -1192,8 +1265,60 @@ internal sealed class MainForm : Form, IAppActions
         public int Bottom;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint
+    {
+        public int X;
+        public int Y;
+
+        public NativePoint(int x, int y)
+        {
+            X = x;
+            Y = y;
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MinMaxInfo
+    {
+        public NativePoint Reserved;
+        public NativePoint MaxSize;
+        public NativePoint MaxPosition;
+        public NativePoint MinTrackSize;
+        public NativePoint MaxTrackSize;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MonitorInfo
+    {
+        public int Size;
+        public NativeRect Monitor;
+        public NativeRect Work;
+        public uint Flags;
+    }
+
+    /// <summary>Rectángulos del monitor donde está la ventana y de su área de trabajo (sin la barra de tareas).</summary>
+    private bool TryGetMonitorAreas(out NativeRect monitor, out NativeRect work)
+    {
+        monitor = default;
+        work = default;
+        var handle = MonitorFromWindow(Handle, MonitorDefaultToNearest);
+        var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+        if (handle == IntPtr.Zero || !GetMonitorInfo(handle, ref info))
+        {
+            return false;
+        }
+
+        monitor = info.Monitor;
+        work = info.Work;
+        return true;
+    }
+
     [DllImport("user32.dll")]
-    private static extern int GetSystemMetrics(int index);
+    private static extern IntPtr MonitorFromWindow(IntPtr hWnd, uint flags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MonitorInfo info);
 
     [DllImport("user32.dll")]
     private static extern bool IsZoomed(IntPtr hWnd);

@@ -47,6 +47,8 @@ En una compilación Debug, con la variable `VIBEDLNA_DEV=1`, la app usa otro mut
 
 ## Notas
 
+- Si una carpeta compartida está en un disco que se monta tarde (USB o red), al abrir con Windows la app espera: revisa cada 5 s y comparte en cuanto aparece. Si solo faltaba una parte, comparte lo disponible y reinicia el servidor cuando llega lo demás. Detener el servidor a mano deja de esperar.
+- Maximizada, la ventana ocupa el área de trabajo del monitor y no tapa la barra de tareas.
 - La primera vez, Windows puede pedir permiso de firewall. Permite acceso en red privada para que la TV lo encuentre.
 - La app anuncia el servidor por DLNA/UPnP y sirve video, musica e imagenes comunes.
 - No convierte ni transcodifica archivos: el reproductor debe soportar el formato y codec del archivo original.
